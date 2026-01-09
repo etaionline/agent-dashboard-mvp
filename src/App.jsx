@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
-import { Activity, GitBranch, Users, FileCode, Zap } from 'lucide-react';
+import { Activity, GitBranch, Users, FileCode, Zap, Monitor } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ManualAgentInput } from './components/ManualAgentInput';
 import { DocumentationViewer } from './components/DocumentationViewer';
+import { PreviewWindow } from './components/PreviewWindow';
 
 /**
  * Agent Dashboard MVP - Main Application
@@ -12,12 +13,13 @@ import { DocumentationViewer } from './components/DocumentationViewer';
  *
  * Agent: CLAUDE-4.5
  * Created: 2026-01-08
- * Updated: 2026-01-09 (Added Manual Agent Drop Zone + Documentation Viewer)
+ * Updated: 2026-01-09 (Added Manual Agent Drop Zone + Documentation Viewer + Live Preview)
  */
 
 function App() {
   const [projectPath, setProjectPath] = useState('/Users/skip/Documents/Active_Projects/painting-estimator');
   const [connected, setConnected] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
   const [stats, setStats] = useState({
     components: 0,
     evolutionEntries: 0,
@@ -114,6 +116,18 @@ function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowPreview(!showPreview)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                showPreview
+                  ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300'
+                  : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <Monitor className="w-4 h-4" />
+              <span className="text-sm font-medium">Preview</span>
+            </button>
+
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
               <span className="text-sm text-slate-400">
@@ -199,6 +213,19 @@ function App() {
           {/* Documentation Viewer */}
           <DocumentationViewer />
         </motion.div>
+
+        {/* Live Preview Window */}
+        {showPreview && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ delay: 0.55 }}
+            className="mb-12"
+          >
+            <PreviewWindow />
+          </motion.div>
+        )}
 
         {/* Coming Soon Features */}
         <motion.div
