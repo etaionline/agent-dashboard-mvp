@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import { Activity, GitBranch, Users, FileCode, Zap } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { ManualAgentInput } from './components/ManualAgentInput';
+import { DocumentationViewer } from './components/DocumentationViewer';
 
 /**
  * Agent Dashboard MVP - Main Application
@@ -9,6 +12,7 @@ import { motion } from 'framer-motion';
  *
  * Agent: CLAUDE-4.5
  * Created: 2026-01-08
+ * Updated: 2026-01-09 (Added Manual Agent Drop Zone + Documentation Viewer)
  */
 
 function App() {
@@ -22,18 +26,49 @@ function App() {
   });
 
   useEffect(() => {
-    // Simulate connection (will be real WebSocket later)
-    const timer = setTimeout(() => {
-      setConnected(true);
-      setStats({
-        components: 8,
-        evolutionEntries: 3,
-        activeAgents: 2,
-        patterns: 4,
-      });
-    }, 1000);
+    // Connect to backend WebSocket
+    let socket;
+    
+    const connectSocket = () => {
+      try {
+        socket = io('http://localhost:3001', {
+          transports: ['websocket', 'polling'],
+          reconnection: true,
+          reconnectionAttempts: 5
+        });
 
-    return () => clearTimeout(timer);
+        socket.on('connect', () => {
+          console.log('[APP] Connected to backend');
+          setConnected(true);
+        });
+
+        socket.on('disconnect', () => {
+          console.log('[APP] Disconnected from backend');
+          setConnected(false);
+        });
+
+        socket.on('file-update', (data) => {
+          // Could update stats based on file changes
+          console.log('[APP] File update:', data.file);
+        });
+      } catch (err) {
+        console.warn('[APP] Socket connection failed:', err.message);
+        // Fallback to simulated connection
+        setConnected(true);
+        setStats({
+          components: 8,
+          evolutionEntries: 3,
+          activeAgents: 2,
+          patterns: 4,
+        });
+      }
+    };
+
+    connectSocket();
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
   }, []);
 
   return (
@@ -122,6 +157,20 @@ function App() {
           <div className="bg-slate-950/50 rounded-lg p-4 border border-slate-700">
             <p className="font-mono text-sm text-emerald-400">{projectPath}</p>
           </div>
+        </motion.div>
+
+        {/* Two-Column Layout: Agent Input + Documentation */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12"
+        >
+          {/* Manual Agent Drop Zone */}
+          <ManualAgentInput />
+
+          {/* Documentation Viewer */}
+          <DocumentationViewer />
         </motion.div>
 
         {/* Coming Soon Features */}
