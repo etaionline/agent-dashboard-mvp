@@ -10,7 +10,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import crypto from 'crypto';
 import chokidar from 'chokidar';
-goimport { parseLogEntries } from './utils/parser.js';
+import { parseLogEntries } from './utils/parser.js';
 
 const execAsync = promisify(exec);
 
