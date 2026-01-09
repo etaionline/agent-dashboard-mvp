@@ -94,4 +94,59 @@ git checkout main && git merge ai/[agent]/[feature-name] && git push
 - WebSocket real-time updates
 - Stats cards (components, commits, agents, log entries)
 
-Last Reviewed: 2026-01-09 (added safeguards after destructive Gemini incident)
+## Cline + Minimax Specific Instructions
+
+**Context Limitations**: Minimax has smaller context window than Claude/GPT-4 — be strategic:
+- ✅ **Read files selectively**: Use `grep_search` to find code before reading full files
+- ✅ **Work incrementally**: Make 1-2 file changes per task, test, then continue
+- ✅ **Ask for clarification early**: Don't assume — verify requirements upfront
+- ❌ **Don't read entire codebase**: You'll hit context limits quickly
+
+**Workflow for Cline/Minimax**:
+```bash
+# 1. Start each task with specific file search
+grep_search("ManualAgentInput") # Find where component is used
+
+# 2. Read ONLY the files you need
+read_file("src/components/ManualAgentInput.jsx", 1, 50)  # Target specific lines
+
+# 3. Make focused changes
+# ✅ Good: Fix one component, test, commit
+# ❌ Bad: Refactor 5 files at once
+
+# 4. Test immediately
+run_in_terminal("npm run dev")  # Verify changes work
+
+# 5. Commit early, commit often
+run_in_terminal("git add -A && git commit -m 'cline/minimax: [what you did]'")
+```
+
+**Best Practices for Minimax**:
+- **Small PRs**: Target 50-100 lines changed per task
+- **Single Responsibility**: "Fix bug in ManualAgentInput" not "Refactor entire app"
+- **Test First**: Run dev server BEFORE making changes to see current behavior
+- **Use Tools Wisely**: 
+  - `semantic_search` for "where is X functionality?"
+  - `grep_search` for "find all uses of X function"
+  - `list_dir` before reading files blindly
+- **Preserve Working Code**: If it works, don't "improve" it without user request
+
+**Common Minimax Pitfalls to Avoid**:
+1. Reading too many files → context overflow → forgets earlier context
+2. Making sweeping changes → breaks working features
+3. Not testing → ships broken code
+4. Assuming requirements → builds wrong thing
+
+**When You're Stuck**:
+```bash
+# Check what's actually running
+run_in_terminal("ps aux | grep 'node\\|vite'")
+
+# See recent changes
+run_in_terminal("git log --oneline -5")
+
+# Verify file exists before reading
+list_dir("src/components")
+```
+
+Last Reviewed: 2026-01-09 (added safeguards after Gemini incident + Cline/Minimax guidance)
