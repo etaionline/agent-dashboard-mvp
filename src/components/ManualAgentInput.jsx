@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Send, RefreshCw, MessageSquare } from 'lucide-react';
+import { Send, RefreshCw, MessageSquare, AlertTriangle, Tag } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 /**
@@ -7,17 +7,40 @@ import { motion, AnimatePresence } from 'framer-motion';
  *
  * Staging area for manually pasting agent responses from non-integrated AIs.
  * Logs all entries to agent-conversation.log for inter-agent coordination.
+ * Supports tags and deduplication.
  *
  * Agent: CLAUDE-4.5
  * Created: 2026-01-09
  */
 
+const TAG_OPTIONS = [
+  { id: 'general', label: 'General', color: 'bg-slate-500' },
+  { id: 'feature', label: 'Feature', color: 'bg-emerald-500' },
+  { id: 'bugfix', label: 'Bug Fix', color: 'bg-red-500' },
+  { id: 'docs', label: 'Docs', color: 'bg-blue-500' },
+  { id: 'refactor', label: 'Refactor', color: 'bg-purple-500' },
+  { id: 'chat', label: 'Chat', color: 'bg-cyan-500' },
+  { id: 'analysis', label: 'Analysis', color: 'bg-amber-500' },
+];
+
+const AUTO_TAGS = [
+  { pattern: /^(feat|feature|add):/i, tag: 'feature' },
+  { pattern: /^(fix|bug|fix:|bugfix:)/i, tag: 'bugfix' },
+  { pattern: /^(docs?|documentation)/i, tag: 'docs' },
+  { pattern: /^(refactor|refactor:|rename)/i, tag: 'refactor' },
+  { pattern: /^(chat|conversation|discuss)/i, tag: 'chat' },
+  { pattern: /^(analyze|analysis|review)/i, tag: 'analysis' },
+];
+
 export const ManualAgentInput = () => {
   const [manualInput, setManualInput] = useState('');
   const [agentName, setAgentName] = useState('');
   const [taskContext, setTaskContext] = useState('');
+  const [selectedTag, setSelectedTag] = useState('general');
   const [manualEntries, setManualEntries] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [pendingForce, setPendingForce] = useState(false);
 
   // Load recent entries on mount
   useEffect(() => {
@@ -40,13 +63,29 @@ export const ManualAgentInput = () => {
     }
   };
 
-  const handleSaveManualEntry = async () => {
+  // Auto-detect tag from content
+  useEffect(() => {
+    if (!manualInput.trim()) {
+      setSelectedTag('general');
+      return;
+    }
+    
+    for (const { pattern, tag } of AUTO_TAGS) {
+      if (pattern.test(manualInput.trim())) {
+        setSelectedTag(tag);
+        break;
+      }
+    }
+  }, [manualInput]);
+
+  const handleSaveManualEntry = async (force = false) => {
     if (!manualInput.trim() || !agentName.trim()) {
       alert('Please provide both agent name and content');
       return;
     }
 
     setIsSaving(true);
+    setDuplicateWarning(null);
 
     const timestamp = new Date().toLocaleString('en-US', {
       timeZone: 'America/Halifax',
@@ -63,36 +102,52 @@ export const ManualAgentInput = () => {
       agent: agentName.trim(),
       task: taskContext.trim() || 'General',
       content: manualInput.trim(),
-      type: 'manual-paste'
+      type: selectedTag
     };
 
     try {
       // Try to save to backend
-      const response = await fetch('http://localhost:3001/api/log-entry', {
+      const url = force ? 'http://localhost:3001/api/log-entry?force=true' : 'http://localhost:3001/api/log-entry';
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(entry)
       });
 
+      const data = await response.json();
+
+      if (data.duplicate && !force) {
+        // Show duplicate warning
+        setDuplicateWarning({
+          existingEntry: data.existingEntry,
+          message: data.message
+        });
+        setIsSaving(false);
+        return;
+      }
+
       if (response.ok) {
         console.log('Entry saved to backend');
       } else {
-        throw new Error('Backend save failed');
+        throw new Error(data.error || 'Backend save failed');
       }
     } catch (err) {
       console.warn('Backend not available, saving locally:', err);
       // Fallback to localStorage
-      const updated = [entry, ...manualEntries].slice(0, 50); // Keep last 50
+      const updated = [entry, ...manualEntries].slice(0, 50);
       localStorage.setItem('manualEntries', JSON.stringify(updated));
     }
 
     // Update UI
     setManualEntries(prev => [entry, ...prev]);
+    setDuplicateWarning(null);
 
     // Clear form
     setManualInput('');
     setTaskContext('');
+    setSelectedTag('general');
     setIsSaving(false);
+    setPendingForce(false);
   };
 
   const formatTimestamp = (ts) => {
@@ -121,6 +176,10 @@ export const ManualAgentInput = () => {
 
     const key = Object.keys(colors).find(k => agent.toUpperCase().includes(k));
     return colors[key] || 'slate';
+  };
+
+  const getTagInfo = (tagId) => {
+    return TAG_OPTIONS.find(t => t.id === tagId) || TAG_OPTIONS[0];
   };
 
   const colorClasses = {
@@ -157,13 +216,51 @@ export const ManualAgentInput = () => {
         </code>
       </p>
 
+      {/* Duplicate Warning */}
+      <AnimatePresence>
+        {duplicateWarning && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mb-4 p-4 bg-amber-500/10 border border-amber-500/50 rounded-lg"
+          >
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="text-amber-400 font-medium mb-1">Duplicate Entry Detected</h4>
+                <p className="text-sm text-slate-300 mb-3">
+                  This content was already logged by {duplicateWarning.existingEntry?.agent || 'same agent'}
+                  {' '}at {formatTimestamp(duplicateWarning.existingEntry?.timestamp || '')}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleSaveManualEntry(true)}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded-lg transition"
+                  >
+                    Append Anyway
+                  </button>
+                  <button
+                    onClick={() => setDuplicateWarning(null)}
+                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Input Form */}
       <div className="mb-4 space-y-3">
+        {/* Agent & Task Row */}
         <div className="grid grid-cols-2 gap-3">
           <input
             type="text"
             className="bg-slate-800 text-white px-4 py-2 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none"
-            placeholder="Agent name (e.g., Claude-4.5, Gemini-1.5)"
+            placeholder="Agent name (e.g., Claude-4.5)"
             value={agentName}
             onChange={(e) => setAgentName(e.target.value)}
           />
@@ -176,17 +273,41 @@ export const ManualAgentInput = () => {
           />
         </div>
 
+        {/* Tag Selector */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Tag className="w-4 h-4 text-slate-500" />
+          <span className="text-sm text-slate-400">Tag:</span>
+          {TAG_OPTIONS.map(tag => {
+            const isSelected = selectedTag === tag.id;
+            return (
+              <button
+                key={tag.id}
+                onClick={() => setSelectedTag(tag.id)}
+                className={`px-2 py-1 rounded-full text-xs transition ${
+                  isSelected
+                    ? `${tag.color} text-white`
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {tag.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Content Input */}
         <textarea
           className="w-full bg-slate-950/80 text-slate-100 p-4 rounded-lg resize-none font-mono text-sm border border-slate-700 focus:border-emerald-500 focus:outline-none"
-          placeholder="Paste agent response here...&#10;&#10;Tip: Include the full prompt + response for best context."
+          placeholder="Paste agent response here...&#10;&#10;Tip: Content starting with 'feat:', 'fix:', 'docs:' will auto-tag."
           rows={6}
           value={manualInput}
           onChange={(e) => setManualInput(e.target.value)}
         />
 
+        {/* Save Button */}
         <button
           className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:cursor-not-allowed px-6 py-3 rounded-lg font-medium text-white transition flex items-center justify-center gap-2"
-          onClick={handleSaveManualEntry}
+          onClick={() => handleSaveManualEntry(false)}
           disabled={isSaving || !manualInput.trim() || !agentName.trim()}
         >
           <Send className="w-4 h-4" />
@@ -207,6 +328,7 @@ export const ManualAgentInput = () => {
             <div className="space-y-3">
               {manualEntries.map((entry, i) => {
                 const color = getAgentColor(entry.agent);
+                const tagInfo = getTagInfo(entry.type || 'general');
                 return (
                   <motion.div
                     key={i}
@@ -216,9 +338,12 @@ export const ManualAgentInput = () => {
                     className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50 hover:border-slate-600 transition"
                   >
                     <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className={`text-xs px-2 py-1 rounded border ${colorClasses[color]}`}>
                           {entry.agent}
+                        </span>
+                        <span className={`text-xs px-2 py-1 rounded border ${tagInfo.color} bg-opacity-10 text-white`}>
+                          {tagInfo.label}
                         </span>
                         {entry.task && entry.task !== 'General' && (
                           <span className="text-xs text-slate-500">

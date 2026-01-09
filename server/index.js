@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import crypto from 'crypto';
 import chokidar from 'chokidar';
 
 const execAsync = promisify(exec);
@@ -69,19 +70,47 @@ watcher.on('add', (filePath) => {
 
 const LOG_PATH = path.join(PROJECT_ROOT, 'agent-conversation.log');
 
+// In-memory recent entries for deduplication (last 100 entries)
+const recentEntries = [];
+
+/**
+ * Generate hash for content deduplication
+ */
+function generateHash(content, agent) {
+  return crypto.createHash('sha256').update(`${agent}:${content}`).digest('hex').substring(0, 16);
+}
+
 /**
  * POST /api/log-entry
- * Append a new entry to agent-conversation.log
+ * Append a new entry to agent-conversation.log with deduplication
  */
 app.post('/api/log-entry', async (req, res) => {
   try {
     const entry = req.body;
+    const force = req.query.force === 'true'; // Force append even if duplicate
+
+    // Generate hash for this entry
+    const entryHash = generateHash(entry.content, entry.agent);
+
+    // Check for duplicate in recent entries (within last 10 entries)
+    const recentDuplicate = recentEntries.find(e => e.hash === entryHash);
+
+    if (recentDuplicate && !force) {
+      console.log(`[LOG] Duplicate detected for ${entry.agent}`);
+      return res.json({
+        success: false,
+        duplicate: true,
+        message: 'Duplicate entry detected',
+        existingEntry: recentDuplicate,
+        note: 'Add ?force=true to append anyway'
+      });
+    }
 
     // Format log entry
     const logEntry = [
       `${entry.timestamp} AST`,
       `Actor: ${entry.agent}`,
-      `Type: ${entry.type}`,
+      `Type: ${entry.type || 'general'}`,
       entry.task ? `Task: ${entry.task}` : null,
       `Content: ${entry.content.substring(0, 500)}${entry.content.length > 500 ? '...' : ''}`,
       '---',
@@ -91,6 +120,16 @@ app.post('/api/log-entry', async (req, res) => {
     // Append to log file
     await fs.appendFile(LOG_PATH, logEntry);
 
+    // Add to recent entries for deduplication
+    recentEntries.unshift({
+      hash: entryHash,
+      agent: entry.agent,
+      content: entry.content.substring(0, 100),
+      timestamp: entry.timestamp
+    });
+    // Keep only last 100 entries in memory
+    if (recentEntries.length > 100) recentEntries.pop();
+
     console.log(`[LOG] New entry from ${entry.agent}`);
 
     // Broadcast to all connected clients
@@ -99,7 +138,8 @@ app.post('/api/log-entry', async (req, res) => {
     res.json({
       success: true,
       message: 'Entry logged successfully',
-      timestamp: entry.timestamp
+      timestamp: entry.timestamp,
+      hash: entryHash
     });
   } catch (err) {
     console.error('Log append error:', err);
