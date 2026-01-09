@@ -12,9 +12,12 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
+    "chokidar": "^3.6.0",
     "cors": "^2.8.5",
     "d3": "^7.8.5",
+    "dotenv": "^17.2.3",
     "express": "^4.22.1",
+    "express-rate-limit": "^8.2.1",
     "framer-motion": "^10.16.4",
     "immer": "^10.0.3",
     "lucide-react": "^0.263.1",
@@ -26,7 +29,6 @@
     "remark-parse": "^11.0.0",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.5.4",
-    "chokidar": "^3.6.0",
     "unified": "^11.0.4",
     "zustand": "^4.4.1"
   },

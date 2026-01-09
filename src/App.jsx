@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
-import { Activity, GitBranch, Users, FileCode, Zap, Monitor } from 'lucide-react';
+import { Activity, GitBranch, Users, FileCode, Zap, Monitor, Brain, Sparkles, ListChecks } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ManualAgentInput } from './components/ManualAgentInput';
 import { DocumentationViewer } from './components/DocumentationViewer';
 import { PreviewWindow } from './components/PreviewWindow';
+import { TaskRouter } from './components/TaskRouter';
+import { AgentCapabilities } from './components/AgentCapabilities';
+import { WorkflowGenerator } from './components/WorkflowGenerator';
 
 /**
  * Agent Dashboard MVP - Main Application
@@ -20,6 +23,7 @@ function App() {
   const [projectPath, setProjectPath] = useState('/Users/skip/Documents/Active_Projects/painting-estimator');
   const [connected, setConnected] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
+  const [activeView, setActiveView] = useState('task-router'); // New: track active view
   const [stats, setStats] = useState({
     components: 0,
     evolutionEntries: 0,
@@ -116,6 +120,57 @@ function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* View Toggle Buttons */}
+            <button
+              onClick={() => setActiveView('task-router')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                activeView === 'task-router'
+                  ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300'
+                  : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <Brain className="w-4 h-4" />
+              <span className="text-sm font-medium">Task Router</span>
+            </button>
+
+            <button
+              onClick={() => setActiveView('agents')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                activeView === 'agents'
+                  ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
+                  : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span className="text-sm font-medium">Agents</span>
+            </button>
+
+            <button
+              onClick={() => setActiveView('workflows')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                activeView === 'workflows'
+                  ? 'bg-blue-500/20 border border-blue-500/40 text-blue-300'
+                  : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <ListChecks className="w-4 h-4" />
+              <span className="text-sm font-medium">Workflows</span>
+            </button>
+
+            <button
+              onClick={() => setActiveView('dashboard')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                activeView === 'dashboard'
+                  ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
+                  : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              <span className="text-sm font-medium">Dashboard</span>
+            </button>
+
+            <div className="w-px h-8 bg-slate-700"></div>
+
             <button
               onClick={() => setShowPreview(!showPreview)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
@@ -140,134 +195,169 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Welcome Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-12"
-        >
-          <h2 className="text-4xl font-bold text-white mb-3 bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
-            Welcome to Agent Dashboard
-          </h2>
-          <p className="text-lg text-slate-400 max-w-2xl">
-            Visual coordination for multi-agent development. See your project, agents, and evolution in real-time.
-          </p>
-        </motion.div>
+        {/* Conditional View Rendering */}
+        {activeView === 'task-router' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-12"
+          >
+            <TaskRouter />
+          </motion.div>
+        )}
 
-        {/* Stats Grid */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12"
-        >
-          <StatCard
-            icon={<FileCode className="w-6 h-6" />}
-            label="Components"
-            value={stats.components}
-            color="emerald"
-          />
-          <StatCard
-            icon={<GitBranch className="w-6 h-6" />}
-            label="Evolution Entries"
-            value={stats.evolutionEntries}
-            color="cyan"
-          />
-          <StatCard
-            icon={<Users className="w-6 h-6" />}
-            label="Active Agents"
-            value={stats.activeAgents}
-            color="violet"
-          />
-          <StatCard
-            icon={<Activity className="w-6 h-6" />}
-            label="Patterns"
-            value={stats.patterns}
-            color="amber"
-          />
-        </motion.div>
+        {activeView === 'agents' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-12"
+          >
+            <AgentCapabilities />
+          </motion.div>
+        )}
 
-        {/* Project Info */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="glass rounded-2xl p-8 mb-8"
-        >
-          <h3 className="text-2xl font-bold text-white mb-4">Current Project</h3>
-          <div className="bg-slate-950/50 rounded-lg p-4 border border-slate-700">
-            <p className="font-mono text-sm text-emerald-400">{projectPath}</p>
-          </div>
-        </motion.div>
+        {activeView === 'workflows' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-12"
+          >
+            <WorkflowGenerator />
+          </motion.div>
+        )}
 
-        {/* Two-Column Layout: Agent Input + Documentation */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12"
-        >
-          {/* Manual Agent Drop Zone */}
-          <ManualAgentInput />
+        {activeView === 'dashboard' && (
+          <>
+            {/* Welcome Section */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-12"
+            >
+              <h2 className="text-4xl font-bold text-white mb-3 bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+                Welcome to Agent Dashboard
+              </h2>
+              <p className="text-lg text-slate-400 max-w-2xl">
+                Visual coordination for multi-agent development. See your project, agents, and evolution in real-time.
+              </p>
+            </motion.div>
 
-          {/* Documentation Viewer */}
-          <DocumentationViewer />
-        </motion.div>
+            {/* Stats Grid */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12"
+            >
+              <StatCard
+                icon={<FileCode className="w-6 h-6" />}
+                label="Components"
+                value={stats.components}
+                color="emerald"
+              />
+              <StatCard
+                icon={<GitBranch className="w-6 h-6" />}
+                label="Evolution Entries"
+                value={stats.evolutionEntries}
+                color="cyan"
+              />
+              <StatCard
+                icon={<Users className="w-6 h-6" />}
+                label="Active Agents"
+                value={stats.activeAgents}
+                color="violet"
+              />
+              <StatCard
+                icon={<Activity className="w-6 h-6" />}
+                label="Patterns"
+                value={stats.patterns}
+                color="amber"
+              />
+            </motion.div>
 
-        {/* Live Preview Window */}
+            {/* Project Info */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="glass rounded-2xl p-8 mb-8"
+            >
+              <h3 className="text-2xl font-bold text-white mb-4">Current Project</h3>
+              <div className="bg-slate-950/50 rounded-lg p-4 border border-slate-700">
+                <p className="font-mono text-sm text-emerald-400">{projectPath}</p>
+              </div>
+            </motion.div>
+
+            {/* Two-Column Layout: Agent Input + Documentation */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12"
+            >
+              {/* Manual Agent Drop Zone */}
+              <ManualAgentInput />
+
+              {/* Documentation Viewer */}
+              <DocumentationViewer />
+            </motion.div>
+
+            {/* Coming Soon Features */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6 }}
+              className="grid grid-cols-1 md:grid-cols-3 gap-6"
+            >
+              <FeatureCard
+                title="Component Graph"
+                description="Visual dependency graph of your codebase with real-time updates"
+                status="In Development"
+                color="emerald"
+              />
+              <FeatureCard
+                title="Evolution Timeline"
+                description="Interactive timeline showing project history with agent signatures"
+                status="In Development"
+                color="cyan"
+              />
+              <FeatureCard
+                title="Agent Coordination"
+                description="Real-time visualization of agent activity and collaboration"
+                status="Planned"
+                color="violet"
+              />
+            </motion.div>
+
+            {/* MVP Notice */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.8 }}
+              className="mt-12 p-6 border border-amber-500/30 bg-amber-500/10 rounded-xl"
+            >
+              <h4 className="text-lg font-semibold text-amber-400 mb-2">🚧 MVP in Development</h4>
+              <p className="text-slate-300">
+                This is Phase 1 of the Agent Dashboard. Core visualization features are being built.
+                Follow the progress in{' '}
+                <code className="px-2 py-1 bg-slate-800 rounded text-emerald-400">PROJECT_GUIDE.md</code>
+              </p>
+            </motion.div>
+          </>
+        )}
+
+        {/* Live Preview Window - Always available when toggled */}
         {showPreview && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            transition={{ delay: 0.55 }}
-            className="mb-12"
+            transition={{ delay: 0.2 }}
+            className="mt-12"
           >
             <PreviewWindow />
           </motion.div>
         )}
-
-        {/* Coming Soon Features */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-6"
-        >
-          <FeatureCard
-            title="Component Graph"
-            description="Visual dependency graph of your codebase with real-time updates"
-            status="In Development"
-            color="emerald"
-          />
-          <FeatureCard
-            title="Evolution Timeline"
-            description="Interactive timeline showing project history with agent signatures"
-            status="In Development"
-            color="cyan"
-          />
-          <FeatureCard
-            title="Agent Coordination"
-            description="Real-time visualization of agent activity and collaboration"
-            status="Planned"
-            color="violet"
-          />
-        </motion.div>
-
-        {/* MVP Notice */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.8 }}
-          className="mt-12 p-6 border border-amber-500/30 bg-amber-500/10 rounded-xl"
-        >
-          <h4 className="text-lg font-semibold text-amber-400 mb-2">🚧 MVP in Development</h4>
-          <p className="text-slate-300">
-            This is Phase 1 of the Agent Dashboard. Core visualization features are being built.
-            Follow the progress in{' '}
-            <code className="px-2 py-1 bg-slate-800 rounded text-emerald-400">PROJECT_GUIDE.md</code>
-          </p>
-        </motion.div>
       </main>
 
       {/* Footer */}

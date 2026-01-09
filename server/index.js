@@ -10,6 +10,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import crypto from 'crypto';
 import chokidar from 'chokidar';
+goimport { parseLogEntries } from './utils/parser.js';
 
 const execAsync = promisify(exec);
 
@@ -161,32 +162,8 @@ app.get('/api/log-entries', async (req, res) => {
     // Read the log file
     const logContent = await fs.readFile(LOG_PATH, 'utf-8');
 
-    // Parse entries (split by ---  separator)
-    const rawEntries = logContent.split('---\n').filter(e => e.trim());
-
-    // Parse each entry
-    const entries = rawEntries
-      .map(raw => {
-        const lines = raw.trim().split('\n');
-        const entry = {};
-
-        lines.forEach(line => {
-          if (line.includes('Actor:')) {
-            entry.agent = line.split('Actor:')[1].trim();
-          } else if (line.includes('Type:')) {
-            entry.type = line.split('Type:')[1].trim();
-          } else if (line.includes('Task:')) {
-            entry.task = line.split('Task:')[1].trim();
-          } else if (line.includes('Content:')) {
-            entry.content = line.split('Content:')[1].trim();
-          } else if (line.includes('AST')) {
-            entry.timestamp = line.replace(' AST', '').trim();
-          }
-        });
-
-        return entry;
-      })
-      .filter(e => e.agent && e.content)
+    // Parse entries using utility
+    const entries = parseLogEntries(logContent)
       .reverse() // Most recent first
       .slice(0, limit);
 

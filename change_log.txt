@@ -59,3 +59,4 @@ Fri Jan  9 02:43:25 AST 2026 - etaionline committed: feat: add tags + deduplicat
 Fri Jan  9 02:43:26 AST 2026 - Cline Checkpoint committed: checkpoint-2345217049-1767939336157
 Fri Jan  9 02:43:44 AST 2026 - Cline Checkpoint committed: checkpoint-2345217049-1767939336157
 Fri Jan  9 03:16:28 AST 2026 - etaionline committed: chore: polish Phase 1 MVP - verify and test all features
+Fri Jan  9 03:26:14 AST 2026 - etaionline committed: feat: add Live Preview Window - complete Mission Control vision
