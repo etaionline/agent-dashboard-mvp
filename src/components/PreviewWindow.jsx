@@ -16,7 +16,7 @@ const PREVIEW_PROJECTS = [
   {
     id: 'painting-estimator',
     name: 'Painting Estimator',
-    url: 'http://localhost:5174', // Assuming painting-estimator runs on 5174
+    url: 'http://localhost:5174',
     description: 'Professional painting cost calculator'
   },
   {
