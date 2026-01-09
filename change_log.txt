@@ -60,3 +60,8 @@ Fri Jan  9 02:43:26 AST 2026 - Cline Checkpoint committed: checkpoint-2345217049
 Fri Jan  9 02:43:44 AST 2026 - Cline Checkpoint committed: checkpoint-2345217049-1767939336157
 Fri Jan  9 03:16:28 AST 2026 - etaionline committed: chore: polish Phase 1 MVP - verify and test all features
 Fri Jan  9 03:26:14 AST 2026 - etaionline committed: feat: add Live Preview Window - complete Mission Control vision
+Fri Jan  9 07:23:04 AST 2026 - etaionline committed: docs: add critical AI safeguards after Gemini destructive incident
+Fri Jan  9 07:25:58 AST 2026 - etaionline committed: docs: add Cline/Minimax specific instructions for context management
+Fri Jan  9 07:28:23 AST 2026 - etaionline committed: fix: typo in server import (goimport → import)
+Fri Jan  9 07:33:45 AST 2026 - etaionline committed: fix: backend typo + update PreviewWindow to port 5174
+Fri Jan  9 07:35:58 AST 2026 - etaionline committed: docs: add port architecture and build strategy guide

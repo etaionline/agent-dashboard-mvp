@@ -160,6 +160,12 @@ export const NewFeature = ({ data }) => {
 };
 ```
 
+### Error UI Standard: "DONT PANIC"
+- All unexpected UI errors render a friendly Hitchhiker-style screen with large bold "DONT PANIC" and the actual error in small print below.
+- Implemented via a global error boundary wrapping the app in `src/main.jsx` using `src/components/DontPanicErrorBoundary.jsx`.
+- For runtime errors outside React render (e.g., network failures), components should continue to log diagnostics but avoid crashing; the boundary will catch render errors.
+- When adding new views/components, no additional work is needed—errors default to the DONT PANIC screen.
+
 ### Adding a New Visualization
 
 1. Use D3.js or React Flow

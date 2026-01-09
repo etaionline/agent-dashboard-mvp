@@ -30,6 +30,15 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
+// Basic security headers without external deps
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  // Note: CSP omitted here to avoid breaking dev preview; add later if needed
+  next();
+});
+
 // Project root (where agent-conversation.log lives)
 const PROJECT_ROOT = path.join(__dirname, '..');
 
@@ -74,6 +83,25 @@ const LOG_PATH = path.join(PROJECT_ROOT, 'agent-conversation.log');
 // In-memory recent entries for deduplication (last 100 entries)
 const recentEntries = [];
 
+// Simple in-memory rate limiter for write endpoints
+const rateLimitStore = new Map();
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const RATE_LIMIT_MAX = 100; // max requests per window per IP
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const entry = rateLimitStore.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return true;
+  }
+  entry.count += 1;
+  return false;
+}
+
 /**
  * Generate hash for content deduplication
  */
@@ -82,12 +110,59 @@ function generateHash(content, agent) {
 }
 
 /**
+ * Basic input sanitization for log fields
+ */
+function sanitizeText(value, maxLen = 2000) {
+  if (typeof value !== 'string') return '';
+  let v = value.trim();
+  // Strip script tags (basic XSS mitigation for stored content)
+  v = v.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  // Remove inline event handlers like onerror=, onclick=
+  v = v.replace(/on[a-zA-Z]+\s*=\s*"[^"]*"/gi, '').replace(/on[a-zA-Z]+\s*=\s*'[^']*'/gi, '');
+  if (v.length > maxLen) v = v.slice(0, maxLen);
+  return v;
+}
+
+function safeTimestamp(ts) {
+  try {
+    return new Date(ts).toString() === 'Invalid Date' ? new Date().toISOString() : new Date(ts).toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
+/**
  * POST /api/log-entry
  * Append a new entry to agent-conversation.log with deduplication
  */
 app.post('/api/log-entry', async (req, res) => {
   try {
-    const entry = req.body;
+    // Rate limit per IP
+    const ip = (req.headers['x-forwarded-for']?.toString().split(',')[0] || req.socket.remoteAddress || 'unknown').toString();
+    if (isRateLimited(ip)) {
+      const entry = rateLimitStore.get(ip);
+      return res.status(429).json({
+        success: false,
+        error: 'Rate limit exceeded',
+        retryAfterMs: Math.max(0, entry.resetAt - Date.now())
+      });
+    }
+
+    const raw = req.body || {};
+    const entry = {
+      timestamp: safeTimestamp(raw.timestamp),
+      agent: sanitizeText(raw.agent || '', 100),
+      type: sanitizeText(raw.type || 'general', 50),
+      task: sanitizeText(raw.task || '', 500),
+      content: sanitizeText(raw.content || '', 5000)
+    };
+
+    if (!entry.agent || !entry.content) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid entry: agent and content are required'
+      });
+    }
     const force = req.query.force === 'true'; // Force append even if duplicate
 
     // Generate hash for this entry
@@ -246,72 +321,69 @@ app.get('/api/docs/:filename', async (req, res) => {
 
 /**
  * GET /api/stats
- * Get real stats from painting-estimator project
+ * Get real stats from LOCAL agent-dashboard-mvp project
+ * Security: During isolation, ONLY read from local working directory
+ * [2026-01-09] [BASEMENT-PROTOCOL] Path integrity enforced
  */
 app.get('/api/stats', async (req, res) => {
-  try {
-    const stats = {};
+  const stats = {
+    gitCommits: 0,
+    logEntries: 0,
+    evolutionEntries: 0,
+    components: 0,
+    activeAgents: 0
+  };
 
-    // Git commit count
+  const safeRead = async (fn, fallback = 0) => {
     try {
-      const { stdout } = await execAsync(`git rev-list --count HEAD`, { cwd: PAINTING_ESTIMATOR_PATH });
-      stats.gitCommits = parseInt(stdout.trim()) || 0;
-    } catch {
-      stats.gitCommits = 0;
+      return await fn();
+    } catch (err) {
+      console.warn('[STATS] Fallback used:', err.message);
+      return fallback;
     }
+  };
 
-    // Log entries count
-    try {
-      const logContent = await fs.readFile(`${PAINTING_ESTIMATOR_PATH}/agent-conversation.log`, 'utf8');
-      const logEntries = logContent.split('---').filter(e => e.trim() && e.includes('Actor:'));
-      stats.logEntries = logEntries.length;
-    } catch {
-      stats.logEntries = 0;
-    }
+  // Git commits from LOCAL repo (agent-dashboard-mvp)
+  stats.gitCommits = await safeRead(async () => {
+    const { stdout } = await execAsync('git rev-list --count HEAD', { cwd: PROJECT_ROOT });
+    return parseInt(stdout.trim(), 10) || 0;
+  });
 
-    // Evolution entries count
-    try {
-      const evolutionContent = await fs.readFile(`${PAINTING_ESTIMATOR_PATH}/ARCHITECTURE_EVOLUTION.md`, 'utf8');
-      const evolutionLines = evolutionContent.split('\n').filter(l => l.includes('|') && l.includes('2026'));
-      stats.evolutionEntries = evolutionLines.length;
-    } catch {
-      stats.evolutionEntries = 0;
-    }
+  // Log entries from LOCAL agent-conversation.log
+  const logContent = await safeRead(async () => await fs.readFile(LOG_PATH, 'utf8'), '');
 
-    // Components count (src files)
-    try {
-      const srcDir = await fs.readdir(`${PAINTING_ESTIMATOR_PATH}/src`);
-      const components = srcDir.filter(f => f.endsWith('.jsx') || f.endsWith('.js'));
-      stats.components = components.length;
-    } catch {
-      stats.components = 0;
-    }
+  stats.logEntries = logContent
+    ? logContent.split('---').filter(e => e.trim() && e.includes('Actor:')).length
+    : 0;
 
-    // Active agents (unique actors in log)
-    try {
-      const logContent = await fs.readFile(`${PAINTING_ESTIMATOR_PATH}/agent-conversation.log`, 'utf8');
-      const actors = new Set();
-      const actorMatches = logContent.matchAll(/Actor:\s*([^\n]+)/g);
-      for (const match of actorMatches) {
-        actors.add(match[1].trim());
-      }
-      stats.activeAgents = actors.size;
-    } catch {
-      stats.activeAgents = 0;
-    }
+  stats.activeAgents = logContent
+    ? (() => {
+        const actors = new Set();
+        const actorMatches = logContent.matchAll(/Actor:\s*([^\n]+)/g);
+        for (const match of actorMatches) actors.add(match[1].trim());
+        return actors.size;
+      })()
+    : 0;
 
-    res.json({
-      success: true,
-      stats,
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    console.error('Stats error:', err);
-    res.status(500).json({
-      error: 'Failed to fetch stats',
-      details: err.message
-    });
-  }
+  // Evolution entries from LOCAL COMPREHENSIVE_REVIEW.md (if exists)
+  const evolutionContent = await safeRead(async () => await fs.readFile(path.join(PROJECT_ROOT, 'COMPREHENSIVE_REVIEW.md'), 'utf8'), '');
+  stats.evolutionEntries = evolutionContent
+    ? evolutionContent.split('\n').filter(l => l.includes('##') || l.includes('###')).length
+    : 0;
+
+  // Components from LOCAL src/ directory
+  stats.components = await safeRead(async () => {
+    const srcPath = path.join(PROJECT_ROOT, 'src');
+    const entries = await fs.readdir(srcPath, { withFileTypes: true });
+    return entries.filter(f => f.isFile() && (f.name.endsWith('.jsx') || f.name.endsWith('.js'))).length;
+  });
+
+  res.json({
+    success: true,
+    stats,
+    timestamp: new Date().toISOString(),
+    source: 'agent-dashboard-mvp (local)'
+  });
 });
 
 /**

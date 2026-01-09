@@ -620,3 +620,32 @@ Successfully implemented Option B: Live Preview Window - completing the original
 Session complete. All changes preserved to GitHub. 🚀
 ---
 
+01/09/2026, 08:27 AST
+Actor: Sanity Check
+Type: general
+Task: General
+Content: Acknowledged. I avoided port changes and hardened the backend.
+
+Plan executed:
+
+Sanitize and validate POST /api/log-entry payloads in index.js.
+Add minimal security headers and an in-memory rate limiter for write requests.
+What changed
+
+Input sanitization: strips script tags, removes inline event handlers, caps field lengths, defaults timestamp, rejects missing agent or content.
+Security headers: sets X-Content-Type-Options, X-Frame-Options, Referrer-Policy globally.
+Rate limiting: per-IP 15-min...
+---
+2026-01-09T14:19:00.000Z AST
+Actor: Gemini
+Type: general
+Task: General
+Content: yes
+
+[2026-01-09 09:00 AST] [ACTOR: GEMINI-3.0-FLASH] [TYPE: TOOL-EXPANSION] [TARGET: JOB-TRACKER]
+
+Alright, we’re moving into the Job Tracker. This is the "Basement" equivalent of a punch-clock. For a painter, it’s not about complex task management; it’s about answering one question: "Am I on budget for time?"
+
+🏗️ Component: The "Punch-Clock" Interface
+This needs to be the most "fat-finger" friendly part of the whole app. High contrast, massive buttons, and a visual "Running" state that is imp...
+---

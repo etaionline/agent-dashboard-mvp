@@ -32,6 +32,8 @@ function App() {
     gitCommits: 0,
     logEntries: 0,
   });
+
+  const [recentCommits, setRecentCommits] = useState([]);
   const [loadingStats, setLoadingStats] = useState(true);
 
   // Fetch real stats from backend
@@ -247,31 +249,43 @@ function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2 }}
-              className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12"
+              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12"
             >
               <StatCard
-                icon={<FileCode className="w-6 h-6" />}
+                icon={<FileCode className="w-5 h-5" />}
                 label="Components"
                 value={stats.components}
                 color="emerald"
               />
               <StatCard
-                icon={<GitBranch className="w-6 h-6" />}
-                label="Evolution Entries"
-                value={stats.evolutionEntries}
+                icon={<GitBranch className="w-5 h-5" />}
+                label="Git Commits"
+                value={stats.gitCommits}
+                color="blue"
+              />
+              <StatCard
+                icon={<Activity className="w-5 h-5" />}
+                label="Log Entries"
+                value={stats.logEntries}
                 color="cyan"
               />
               <StatCard
-                icon={<Users className="w-6 h-6" />}
-                label="Active Agents"
-                value={stats.activeAgents}
+                icon={<GitBranch className="w-5 h-5" />}
+                label="Evolution"
+                value={stats.evolutionEntries}
                 color="violet"
               />
               <StatCard
-                icon={<Activity className="w-6 h-6" />}
+                icon={<Users className="w-5 h-5" />}
+                label="Agents"
+                value={stats.activeAgents}
+                color="amber"
+              />
+              <StatCard
+                icon={<Zap className="w-5 h-5" />}
                 label="Patterns"
                 value={stats.patterns}
-                color="amber"
+                color="rose"
               />
             </motion.div>
 
@@ -373,21 +387,23 @@ function App() {
 function StatCard({ icon, label, value, color }) {
   const colorClasses = {
     emerald: 'from-emerald-500/20 to-emerald-500/5 border-emerald-500/30 text-emerald-400',
+    blue: 'from-blue-500/20 to-blue-500/5 border-blue-500/30 text-blue-400',
     cyan: 'from-cyan-500/20 to-cyan-500/5 border-cyan-500/30 text-cyan-400',
     violet: 'from-violet-500/20 to-violet-500/5 border-violet-500/30 text-violet-400',
     amber: 'from-amber-500/20 to-amber-500/5 border-amber-500/30 text-amber-400',
+    rose: 'from-rose-500/20 to-rose-500/5 border-rose-500/30 text-rose-400',
   };
 
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
-      className={`bg-gradient-to-br ${colorClasses[color]} border rounded-xl p-6 transition-all`}
+      className={`bg-gradient-to-br ${colorClasses[color]} border rounded-xl p-4 transition-all`}
     >
-      <div className="flex items-center justify-between mb-3">
-        <div className={`${colorClasses[color].split(' ')[3]}`}>{icon}</div>
-        <span className="text-3xl font-bold text-white">{value}</span>
+      <div className="flex items-center justify-between mb-2">
+        <div className={`${colorClasses[color]?.split(' ')[3] || 'text-slate-400'}`}>{icon}</div>
+        <span className="text-2xl font-bold text-white">{value}</span>
       </div>
-      <p className="text-sm text-slate-400">{label}</p>
+      <p className="text-xs text-slate-400">{label}</p>
     </motion.div>
   );
 }
