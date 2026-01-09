@@ -23,7 +23,34 @@ function App() {
     evolutionEntries: 0,
     activeAgents: 0,
     patterns: 0,
+    gitCommits: 0,
+    logEntries: 0,
   });
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  // Fetch real stats from backend
+  const fetchStats = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/stats');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setStats({
+            components: data.stats.components || 0,
+            evolutionEntries: data.stats.evolutionEntries || 0,
+            activeAgents: data.stats.activeAgents || 0,
+            patterns: 4, // Keep mock for now
+            gitCommits: data.stats.gitCommits || 0,
+            logEntries: data.stats.logEntries || 0,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[APP] Failed to fetch stats:', err.message);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
 
   useEffect(() => {
     // Connect to backend WebSocket
@@ -40,6 +67,8 @@ function App() {
         socket.on('connect', () => {
           console.log('[APP] Connected to backend');
           setConnected(true);
+          // Fetch stats after connection
+          fetchStats();
         });
 
         socket.on('disconnect', () => {
@@ -48,19 +77,17 @@ function App() {
         });
 
         socket.on('file-update', (data) => {
-          // Could update stats based on file changes
           console.log('[APP] File update:', data.file);
+          // Refresh stats when key files change
+          if (['PROJECT_GUIDE.md', 'agent-conversation.log', 'ARCHITECTURE_EVOLUTION.md'].includes(data.file)) {
+            fetchStats();
+          }
         });
       } catch (err) {
         console.warn('[APP] Socket connection failed:', err.message);
-        // Fallback to simulated connection
+        // Try fetching stats anyway
+        fetchStats();
         setConnected(true);
-        setStats({
-          components: 8,
-          evolutionEntries: 3,
-          activeAgents: 2,
-          patterns: 4,
-        });
       }
     };
 

@@ -6,7 +6,11 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import chokidar from 'chokidar';
+
+const execAsync = promisify(exec);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -218,6 +222,76 @@ app.get('/api/docs/:filename', async (req, res) => {
     console.error('Error serving doc:', err);
     res.status(500).json({
       error: 'Failed to read document',
+      details: err.message
+    });
+  }
+});
+
+/**
+ * GET /api/stats
+ * Get real stats from painting-estimator project
+ */
+app.get('/api/stats', async (req, res) => {
+  try {
+    const stats = {};
+
+    // Git commit count
+    try {
+      const { stdout } = await execAsync(`git rev-list --count HEAD`, { cwd: PAINTING_ESTIMATOR_PATH });
+      stats.gitCommits = parseInt(stdout.trim()) || 0;
+    } catch {
+      stats.gitCommits = 0;
+    }
+
+    // Log entries count
+    try {
+      const logContent = await fs.readFile(`${PAINTING_ESTIMATOR_PATH}/agent-conversation.log`, 'utf8');
+      const logEntries = logContent.split('---').filter(e => e.trim() && e.includes('Actor:'));
+      stats.logEntries = logEntries.length;
+    } catch {
+      stats.logEntries = 0;
+    }
+
+    // Evolution entries count
+    try {
+      const evolutionContent = await fs.readFile(`${PAINTING_ESTIMATOR_PATH}/ARCHITECTURE_EVOLUTION.md`, 'utf8');
+      const evolutionLines = evolutionContent.split('\n').filter(l => l.includes('|') && l.includes('2026'));
+      stats.evolutionEntries = evolutionLines.length;
+    } catch {
+      stats.evolutionEntries = 0;
+    }
+
+    // Components count (src files)
+    try {
+      const srcDir = await fs.readdir(`${PAINTING_ESTIMATOR_PATH}/src`);
+      const components = srcDir.filter(f => f.endsWith('.jsx') || f.endsWith('.js'));
+      stats.components = components.length;
+    } catch {
+      stats.components = 0;
+    }
+
+    // Active agents (unique actors in log)
+    try {
+      const logContent = await fs.readFile(`${PAINTING_ESTIMATOR_PATH}/agent-conversation.log`, 'utf8');
+      const actors = new Set();
+      const actorMatches = logContent.matchAll(/Actor:\s*([^\n]+)/g);
+      for (const match of actorMatches) {
+        actors.add(match[1].trim());
+      }
+      stats.activeAgents = actors.size;
+    } catch {
+      stats.activeAgents = 0;
+    }
+
+    res.json({
+      success: true,
+      stats,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Stats error:', err);
+    res.status(500).json({
+      error: 'Failed to fetch stats',
       details: err.message
     });
   }
