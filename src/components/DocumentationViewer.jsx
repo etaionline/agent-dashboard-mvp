@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { Book, FileText, GitBranch, RefreshCw, Search } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -6,13 +6,14 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 /**
- * Documentation Viewer
+ * Documentation Viewer Content
  *
  * Your cognitive scaffold - view all project documentation in one place.
- * Auto-refreshes when files change. Makes complex projects feel comfortable.
+ * Auto-refreshes when files change. Now designed to work inside FloatingWindow wrapper.
  *
  * Agent: CLAUDE-4.5
  * Created: 2026-01-09
+ * Updated: 2026-01-09 (Refactored for FloatingWindow)
  */
 
 const DOCS = [
@@ -114,31 +115,27 @@ export const DocumentationViewer = () => {
   const activeDoc = DOCS.find(d => d.id === activeTab);
 
   return (
-    <div className="bg-slate-900/70 backdrop-blur-lg rounded-xl border border-slate-700 p-6 h-[80vh] flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <Book className="w-6 h-6 text-cyan-400" />
-          <h2 className="text-xl font-semibold text-white">Documentation</h2>
-        </div>
+    <div className="flex flex-col h-full">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-slate-900/30">
         <div className="flex items-center gap-3">
           {lastUpdated && (
             <span className="text-xs text-slate-500">
               Updated {lastUpdated.toLocaleTimeString()}
             </span>
           )}
-          <button
-            onClick={() => loadDocument(activeDoc.file)}
-            className="text-slate-400 hover:text-white transition"
-            title="Refresh"
-          >
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
         </div>
+        <button
+          onClick={() => loadDocument(activeDoc.file)}
+          className="text-slate-400 hover:text-white transition"
+          title="Refresh"
+        >
+          <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-4 overflow-x-auto">
+      <div className="flex gap-2 px-4 py-3 overflow-x-auto border-b border-slate-700 bg-slate-900/20">
         {DOCS.map(doc => {
           const Icon = doc.icon;
           const isActive = activeTab === doc.id;
@@ -160,8 +157,8 @@ export const DocumentationViewer = () => {
       </div>
 
       {/* Search Bar */}
-      <div className="mb-4 relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+      <div className="px-4 py-3 border-b border-slate-700 bg-slate-900/20 relative">
+        <Search className="absolute left-7 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
         <input
           type="text"
           placeholder="Search in document..."
@@ -180,7 +177,7 @@ export const DocumentationViewer = () => {
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto bg-slate-950/50 rounded-lg p-6 border border-slate-700">
+      <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-slate-400 flex items-center gap-2">
@@ -234,7 +231,7 @@ export const DocumentationViewer = () => {
       </div>
 
       {/* Footer Info */}
-      <div className="mt-4 text-xs text-slate-500 flex items-center justify-between">
+      <div className="px-4 py-2 border-t border-slate-700 bg-slate-950/30 text-xs text-slate-500 flex items-center justify-between">
         <span>
           Viewing: <span className="text-slate-400 font-mono">{activeDoc.file}</span>
         </span>

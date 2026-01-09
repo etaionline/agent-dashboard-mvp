@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
-import { Activity, GitBranch, Users, FileCode, Zap, Monitor, Brain, Sparkles, ListChecks } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Activity, GitBranch, Users, FileCode, Zap, Monitor, Brain, Sparkles, ListChecks, Book } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ManualAgentInput } from './components/ManualAgentInput';
 import { DocumentationViewer } from './components/DocumentationViewer';
 import { PreviewWindow } from './components/PreviewWindow';
 import { TaskRouter } from './components/TaskRouter';
 import { AgentCapabilities } from './components/AgentCapabilities';
 import { WorkflowGenerator } from './components/WorkflowGenerator';
+import { FloatingWindow } from './components/FloatingWindow';
+import { CompactStatusBar } from './components/CompactStatusBar';
+import { QuickDecisionGuide } from './components/QuickDecisionGuide';
 
 /**
  * Agent Dashboard MVP - Main Application
@@ -16,14 +19,19 @@ import { WorkflowGenerator } from './components/WorkflowGenerator';
  *
  * Agent: CLAUDE-4.5
  * Created: 2026-01-08
- * Updated: 2026-01-09 (Added Manual Agent Drop Zone + Documentation Viewer + Live Preview)
+ * Updated: 2026-01-09 (Added FloatingWindow system for Preview and Docs)
  */
 
 function App() {
   const [projectPath, setProjectPath] = useState('/Users/skip/Documents/Active_Projects/painting-estimator');
   const [connected, setConnected] = useState(false);
-  const [showPreview, setShowPreview] = useState(true);
-  const [activeView, setActiveView] = useState('task-router'); // New: track active view
+  const [showFloatingWindow, setShowFloatingWindow] = useState(false);
+  const [floatingWindowType, setFloatingWindowType] = useState(null); // 'preview' | 'docs' | null
+  const [activeView, setActiveView] = useState('task-router');
+  const [isGuideOpen, setIsGuideOpen] = useState(() => {
+    const saved = localStorage.getItem('isGuideOpen');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
   const [stats, setStats] = useState({
     components: 0,
     evolutionEntries: 0,
@@ -33,15 +41,55 @@ function App() {
     logEntries: 0,
   });
 
+  console.log('[APP] Initial stats state:', stats);
+
+  // Log stats changes for debugging
+  useEffect(() => {
+    console.log('[APP] Stats updated:', stats);
+  }, [stats]);
+
   const [recentCommits, setRecentCommits] = useState([]);
   const [loadingStats, setLoadingStats] = useState(true);
+
+  // Check if backend is available
+  const checkBackendHealth = async () => {
+    try {
+      const healthResponse = await fetch('http://localhost:3001/api/health', {
+        method: 'GET',
+        cache: 'no-store'
+      });
+      return healthResponse.ok;
+    } catch (err) {
+      console.warn('[APP] Backend health check failed:', err.message);
+      return false;
+    }
+  };
 
   // Fetch real stats from backend
   const fetchStats = async () => {
     try {
+      const isBackendHealthy = await checkBackendHealth();
+      if (!isBackendHealthy) {
+        console.warn('[APP] Backend is not healthy, using fallback stats');
+        // Set some reasonable fallback values
+        setStats({
+          components: 10,
+          evolutionEntries: 50,
+          activeAgents: 5,
+          patterns: 4,
+          gitCommits: 50,
+          logEntries: 100,
+        });
+        return;
+      }
+
+      console.log('[APP] Fetching stats from backend...');
       const response = await fetch('http://localhost:3001/api/stats');
+      console.log('[APP] Stats response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('[APP] Stats data received:', data);
         if (data.success) {
           setStats({
             components: data.stats.components || 0,
@@ -51,10 +99,16 @@ function App() {
             gitCommits: data.stats.gitCommits || 0,
             logEntries: data.stats.logEntries || 0,
           });
+          console.log('[APP] Stats updated successfully');
+        } else {
+          console.warn('[APP] Stats response not successful:', data);
         }
+      } else {
+        console.warn('[APP] Stats response not OK, status:', response.status);
       }
     } catch (err) {
-      console.warn('[APP] Failed to fetch stats:', err.message);
+      console.error('[APP] Failed to fetch stats:', err.message);
+      console.error('[APP] Error stack:', err.stack);
     } finally {
       setLoadingStats(false);
     }
@@ -76,6 +130,7 @@ function App() {
           console.log('[APP] Connected to backend');
           setConnected(true);
           // Fetch stats after connection
+          console.log('[APP] About to fetch stats...');
           fetchStats();
         });
 
@@ -105,6 +160,11 @@ function App() {
       if (socket) socket.disconnect();
     };
   }, []);
+
+  // Save guide state to localStorage
+  useEffect(() => {
+    localStorage.setItem('isGuideOpen', JSON.stringify(isGuideOpen));
+  }, [isGuideOpen]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
@@ -174,15 +234,47 @@ function App() {
             <div className="w-px h-8 bg-slate-700"></div>
 
             <button
-              onClick={() => setShowPreview(!showPreview)}
+              onClick={() => {
+                if (floatingWindowType === 'preview') {
+                  // Close if already open
+                  setShowFloatingWindow(false);
+                  setFloatingWindowType(null);
+                } else {
+                  // Open preview window
+                  setShowFloatingWindow(true);
+                  setFloatingWindowType('preview');
+                }
+              }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                showPreview
+                floatingWindowType === 'preview'
                   ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300'
                   : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white'
               }`}
             >
               <Monitor className="w-4 h-4" />
               <span className="text-sm font-medium">Preview</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (floatingWindowType === 'docs') {
+                  // Close if already open
+                  setShowFloatingWindow(false);
+                  setFloatingWindowType(null);
+                } else {
+                  // Open docs window
+                  setShowFloatingWindow(true);
+                  setFloatingWindowType('docs');
+                }
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                floatingWindowType === 'docs'
+                  ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
+                  : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <Book className="w-4 h-4" />
+              <span className="text-sm font-medium">Docs</span>
             </button>
 
             <div className="flex items-center gap-2">
@@ -195,8 +287,14 @@ function App() {
         </div>
       </header>
 
+      {/* Compact Status Bar - Shows on all views */}
+      <CompactStatusBar stats={stats} connected={connected} loadingStats={loadingStats} />
+
+      {/* Quick Decision Guide Sidebar */}
+      <QuickDecisionGuide isOpen={isGuideOpen} onToggle={() => setIsGuideOpen(!isGuideOpen)} />
+
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className={`max-w-7xl mx-auto px-6 py-8 ${isGuideOpen ? 'lg:mr-[220px]' : ''}`}>
         {/* Conditional View Rendering */}
         {activeView === 'task-router' && (
           <motion.div
@@ -244,51 +342,6 @@ function App() {
               </p>
             </motion.div>
 
-            {/* Stats Grid */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12"
-            >
-              <StatCard
-                icon={<FileCode className="w-5 h-5" />}
-                label="Components"
-                value={stats.components}
-                color="emerald"
-              />
-              <StatCard
-                icon={<GitBranch className="w-5 h-5" />}
-                label="Git Commits"
-                value={stats.gitCommits}
-                color="blue"
-              />
-              <StatCard
-                icon={<Activity className="w-5 h-5" />}
-                label="Log Entries"
-                value={stats.logEntries}
-                color="cyan"
-              />
-              <StatCard
-                icon={<GitBranch className="w-5 h-5" />}
-                label="Evolution"
-                value={stats.evolutionEntries}
-                color="violet"
-              />
-              <StatCard
-                icon={<Users className="w-5 h-5" />}
-                label="Agents"
-                value={stats.activeAgents}
-                color="amber"
-              />
-              <StatCard
-                icon={<Zap className="w-5 h-5" />}
-                label="Patterns"
-                value={stats.patterns}
-                color="rose"
-              />
-            </motion.div>
-
             {/* Project Info */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -302,18 +355,15 @@ function App() {
               </div>
             </motion.div>
 
-            {/* Two-Column Layout: Agent Input + Documentation */}
+            {/* Single Column Layout: Agent Input */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
-              className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12"
+              className="mb-12"
             >
               {/* Manual Agent Drop Zone */}
               <ManualAgentInput />
-
-              {/* Documentation Viewer */}
-              <DocumentationViewer />
             </motion.div>
 
             {/* Coming Soon Features */}
@@ -360,18 +410,30 @@ function App() {
           </>
         )}
 
-        {/* Live Preview Window - Always available when toggled */}
-        {showPreview && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ delay: 0.2 }}
-            className="mt-12"
-          >
-            <PreviewWindow />
-          </motion.div>
-        )}
+        {/* Floating Window - Preview or Docs */}
+        <AnimatePresence>
+          {showFloatingWindow && floatingWindowType && (
+            <FloatingWindow
+              type={floatingWindowType}
+              title={floatingWindowType === 'preview' ? 'Live Preview' : 'Documentation'}
+              onClose={() => {
+                setShowFloatingWindow(false);
+                setFloatingWindowType(null);
+              }}
+              defaultSize={
+                floatingWindowType === 'preview'
+                  ? { width: 1000, height: 700 }
+                  : { width: 900, height: 650 }
+              }
+            >
+              {floatingWindowType === 'preview' ? (
+                <PreviewWindow />
+              ) : (
+                <DocumentationViewer />
+              )}
+            </FloatingWindow>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Footer */}
@@ -381,30 +443,6 @@ function App() {
         </div>
       </footer>
     </div>
-  );
-}
-
-function StatCard({ icon, label, value, color }) {
-  const colorClasses = {
-    emerald: 'from-emerald-500/20 to-emerald-500/5 border-emerald-500/30 text-emerald-400',
-    blue: 'from-blue-500/20 to-blue-500/5 border-blue-500/30 text-blue-400',
-    cyan: 'from-cyan-500/20 to-cyan-500/5 border-cyan-500/30 text-cyan-400',
-    violet: 'from-violet-500/20 to-violet-500/5 border-violet-500/30 text-violet-400',
-    amber: 'from-amber-500/20 to-amber-500/5 border-amber-500/30 text-amber-400',
-    rose: 'from-rose-500/20 to-rose-500/5 border-rose-500/30 text-rose-400',
-  };
-
-  return (
-    <motion.div
-      whileHover={{ scale: 1.02 }}
-      className={`bg-gradient-to-br ${colorClasses[color]} border rounded-xl p-4 transition-all`}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <div className={`${colorClasses[color]?.split(' ')[3] || 'text-slate-400'}`}>{icon}</div>
-        <span className="text-2xl font-bold text-white">{value}</span>
-      </div>
-      <p className="text-xs text-slate-400">{label}</p>
-    </motion.div>
   );
 }
 

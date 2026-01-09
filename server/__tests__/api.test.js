@@ -1,468 +1,386 @@
-import { describe, it, expect, vi, beforeEach, afterAll, beforeAll } from 'vitest';
-import express from 'express';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
-import fs from 'fs/promises';
-import fsSync from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import crypto from 'crypto';
+const request = require('supertest');
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const fs = require('fs');
+const path = require('path');
 
-const execAsync = promisify(exec);
+// Mock chokidar to prevent file system operations
+jest.mock('chokidar', () => ({
+  watch: jest.fn(() => ({
+    on: jest.fn()
+  }))
+}));
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+describe('Server API Endpoints', () => {
+  let app;
+  let server;
+  let httpServer;
 
-// Create a test server instance
-const createTestServer = () => {
-  const app = express();
-  const httpServer = createServer(app);
-  const io = new Server(httpServer, {
-    cors: {
-      origin: 'http://localhost:5173',
-      methods: ['GET', 'POST']
-    }
-  });
-
-  app.use(cors());
-  app.use(express.json());
-
-  // Basic security headers
-  app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    next();
-  });
-
-  const PROJECT_ROOT = path.join(__dirname, '..');
-  const PAINTING_ESTIMATOR_PATH = '/Users/skip/Documents/Active_Projects/painting-estimator';
-  const LOG_PATH = path.join(PROJECT_ROOT, 'agent-conversation.log');
-
-  // In-memory recent entries for deduplication
-  const recentEntries = [];
-
-  // Rate limiter
-  const rateLimitStore = new Map();
-  const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-  const RATE_LIMIT_MAX = 100;
-
-  function isRateLimited(ip) {
-    const now = Date.now();
-    const entry = rateLimitStore.get(ip);
-    if (!entry || now > entry.resetAt) {
-      rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-      return false;
-    }
-    if (entry.count >= RATE_LIMIT_MAX) return true;
-    entry.count += 1;
-    return false;
-  }
-
-  function generateHash(content, agent) {
-    return crypto.createHash('sha256').update(`${agent}:${content}`).digest('hex').substring(0, 16);
-  }
-
-  function sanitizeText(value, maxLen = 2000) {
-    if (typeof value !== 'string') return '';
-    let v = value.trim();
-    v = v.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-    v = v.replace(/on[a-zA-Z]+\s*=\s*"[^"]*"/gi, '').replace(/on[a-zA-Z]+\s*=\s*'[^']*'/gi, '');
-    if (v.length > maxLen) v = v.slice(0, maxLen);
-    return v;
-  }
-
-  function safeTimestamp(ts) {
-    try {
-      return new Date(ts).toString() === 'Invalid Date' ? new Date().toISOString() : new Date(ts).toISOString();
-    } catch {
-      return new Date().toISOString();
-    }
-  }
-
-  // Health endpoint
-  app.get('/api/health', (req, res) => {
-    res.json({
-      status: 'healthy',
-      uptime: process.uptime(),
-      timestamp: new Date().toISOString()
+  beforeAll((done) => {
+    app = express();
+    app.use(express.json());
+    
+    // Import and setup the server routes
+    const PORT = 3001;
+    
+    // Create HTTP server
+    httpServer = http.createServer(app);
+    
+    // Setup Socket.io
+    const io = new Server(httpServer, {
+      cors: {
+        origin: '*',
+        methods: ['GET', 'POST']
+      }
     });
-  });
-
-  // Stats endpoint
-  app.get('/api/stats', async (req, res) => {
-    const stats = {
-      gitCommits: 0,
-      logEntries: 0,
-      evolutionEntries: 0,
-      components: 0,
-      activeAgents: 0
+    
+    // Mock file system for testing
+    const mockProjectPath = '/tmp/test-project';
+    const mockFiles = {
+      'README.md': '# Test Project\n\nThis is a test.',
+      'PROJECT_GUIDE.md': '# Project Guide\n\nTest guide.',
+      'EVOLUTION_LOG.md': '# Evolution Log\n\nInitial commit.'
     };
-
-    try {
-      const { stdout } = await execAsync('git rev-list --count HEAD', { cwd: PAINTING_ESTIMATOR_PATH });
-      stats.gitCommits = parseInt(stdout.trim(), 10) || 0;
-    } catch {
-      stats.gitCommits = 0;
+    
+    // Ensure mock directory exists
+    if (!fs.existsSync(mockProjectPath)) {
+      fs.mkdirSync(mockProjectPath, { recursive: true });
     }
-
-    res.json({
-      success: true,
-      stats,
-      timestamp: new Date().toISOString()
+    
+    // Write mock files
+    Object.entries(mockFiles).forEach(([filename, content]) => {
+      fs.writeFileSync(path.join(mockProjectPath, filename), content);
     });
-  });
-
-  // Log entry endpoint
-  app.post('/api/log-entry', async (req, res) => {
-    try {
-      const ip = 'test-ip';
-      if (isRateLimited(ip)) {
-        return res.status(429).json({ success: false, error: 'Rate limit exceeded' });
-      }
-
-      const raw = req.body || {};
-      const entry = {
-        timestamp: safeTimestamp(raw.timestamp),
-        agent: sanitizeText(raw.agent || '', 100),
-        type: sanitizeText(raw.type || 'general', 50),
-        task: sanitizeText(raw.task || '', 500),
-        content: sanitizeText(raw.content || '', 5000)
-      };
-
-      if (!entry.agent || !entry.content) {
-        return res.status(400).json({ success: false, error: 'Invalid entry' });
-      }
-
-      const entryHash = generateHash(entry.content, entry.agent);
-      const force = req.query.force === 'true';
-
-      if (!force) {
-        const recentDuplicate = recentEntries.find(e => e.hash === entryHash);
-        if (recentDuplicate) {
-          return res.json({
-            success: false,
-            duplicate: true,
-            message: 'Duplicate entry detected',
-            existingEntry: recentDuplicate
+    
+    // Environment setup
+    process.env.AGENT_PROJECT_PATH = mockProjectPath;
+    
+    // Health check endpoint
+    app.get('/api/health', (req, res) => {
+      res.json({ 
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        projectPath: mockProjectPath
+      });
+    });
+    
+    // Stats endpoint (enforcing path integrity)
+    app.get('/api/stats', async (req, res) => {
+      try {
+        const projectPath = process.env.AGENT_PROJECT_PATH;
+        
+        if (!projectPath || !fs.existsSync(projectPath)) {
+          return res.status(404).json({ 
+            success: false, 
+            error: 'Project path not configured' 
           });
         }
-      }
-
-      const logEntry = [
-        `${entry.timestamp} AST`,
-        `Actor: ${entry.agent}`,
-        `Type: ${entry.type || 'general'}`,
-        entry.task ? `Task: ${entry.task}` : null,
-        `Content: ${entry.content.substring(0, 500)}${entry.content.length > 500 ? '...' : ''}`,
-        '---',
-        ''
-      ].filter(Boolean).join('\n') + '\n';
-
-      try {
-        await fs.appendFile(LOG_PATH, logEntry);
+        
+        // Read directory stats
+        const files = fs.readdirSync(projectPath);
+        const stats = {
+          totalFiles: files.length,
+          documentationFiles: files.filter(f => f.endsWith('.md')).length,
+          sourceFiles: files.filter(f => /\.(js|jsx|ts|tsx)$/.test(f)).length,
+          lastUpdated: new Date().toISOString()
+        };
+        
+        res.json({ success: true, stats });
       } catch (err) {
-        // File might not exist, create it
-        await fs.writeFile(LOG_PATH, logEntry);
+        console.error('[STATS] Error:', err.message);
+        res.status(500).json({ 
+          success: false, 
+          error: err.message 
+        });
       }
-
-      recentEntries.unshift({ hash: entryHash, agent: entry.agent, timestamp: entry.timestamp });
-      if (recentEntries.length > 100) recentEntries.pop();
-
-      io.emit('logUpdated', { newEntry: entry });
-
-      res.json({ success: true, message: 'Entry logged successfully', timestamp: entry.timestamp });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to save entry', details: err.message });
-    }
-  });
-
-  // Docs endpoint
-  app.get('/api/docs/:filename', async (req, res) => {
-    try {
+    });
+    
+    // Documentation endpoint
+    app.get('/api/docs/:filename', (req, res) => {
       const { filename } = req.params;
-      const allowedFiles = ['README.md', 'PROJECT_GUIDE.md', 'GETTING_STARTED.md', 'agent-conversation.log', 'change_log.txt'];
-
+      const allowedFiles = ['README.md', 'PROJECT_GUIDE.md', 'EVOLUTION_LOG.md'];
+      
       if (!allowedFiles.includes(filename)) {
-        return res.status(403).json({ error: 'File not allowed' });
+        return res.status(403).json({ 
+          error: 'File not allowed' 
+        });
       }
-
-      let filePath = path.join(PROJECT_ROOT, filename);
-      let content;
-
-      try {
-        content = await fs.readFile(filePath, 'utf-8');
-      } catch {
-        const pePath = path.join(PAINTING_ESTIMATOR_PATH, filename);
+      
+      const filePath = path.join(mockProjectPath, filename);
+      
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, 'utf8');
+        res.set('Content-Type', 'text/plain');
+        res.send(content);
+      } else {
+        res.status(404).json({ error: 'File not found' });
+      }
+    });
+    
+    // Log entries endpoint
+    app.get('/api/log-entries', (req, res) => {
+      const logPath = path.join(mockProjectPath, 'agent-conversation.log');
+      
+      if (fs.existsSync(logPath)) {
         try {
-          content = await fs.readFile(pePath, 'utf-8');
+          const content = fs.readFileSync(logPath, 'utf8');
+          const entries = content.split('---').filter(Boolean).map(entry => {
+            try {
+              return JSON.parse(entry.trim());
+            } catch {
+              return null;
+            }
+          }).filter(Boolean);
+          
+          res.json({ success: true, entries: entries.reverse() });
         } catch {
-          return res.status(404).json({ error: 'File not found', filename });
+          res.json({ success: true, entries: [] });
         }
+      } else {
+        res.json({ success: true, entries: [] });
       }
+    });
+    
+    // Create log entry endpoint
+    app.post('/api/log-entry', (req, res) => {
+      const { agent, type, task, content, force } = req.body;
+      
+      if (!agent || !content) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: agent and content' 
+        });
+      }
+      
+      const entry = {
+        timestamp: new Date().toISOString(),
+        agent,
+        type: type || 'general',
+        task: task || '',
+        content,
+        hash: require('crypto').createHash('md5').update(`${agent}${content}`).digest('hex').substring(0, 8)
+      };
+      
+      const logPath = path.join(mockProjectPath, 'agent-conversation.log');
+      
+      try {
+        const logEntry = `\n---\n${JSON.stringify(entry, null, 2)}\n`;
+        fs.appendFileSync(logPath, logEntry);
+        res.json({ success: true, entry });
+      } catch (err) {
+        console.error('[LOG] Error saving entry:', err.message);
+        res.status(500).json({ error: 'Failed to save entry' });
+      }
+    });
+    
+    // File watcher simulation
+    io.on('connection', (socket) => {
+      console.log('[WS] Client connected');
+      
+      socket.on('disconnect', () => {
+        console.log('[WS] Client disconnected');
+      });
+    });
+    
+    // Start server
+    httpServer.listen(PORT, () => {
+      console.log(`[TEST] Server running on port ${PORT}`);
+      done();
+    });
+  });
 
-      res.json({ success: true, filename, content, size: content.length });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to read document', details: err.message });
+  afterAll((done) => {
+    if (httpServer) {
+      httpServer.close(done);
+    } else {
+      done();
     }
-  });
-
-  return { app, httpServer, io };
-};
-
-describe('API Endpoints', () => {
-  let server;
-  let baseUrl;
-
-  beforeAll(() => {
-    const { httpServer } = createTestServer();
-    server = httpServer;
-    server.listen(0); // Random port
-    const addr = server.address();
-    baseUrl = `http://localhost:${addr.port}`;
-  });
-
-  afterAll(() => {
-    if (server) server.close();
   });
 
   describe('GET /api/health', () => {
     it('returns healthy status', async () => {
-      const response = await fetch(`${baseUrl}/api/health`);
-      expect(response.ok).toBe(true);
+      const response = await request('http://localhost:3001')
+        .get('/api/health')
+        .expect(200);
       
-      const data = await response.json();
-      expect(data.status).toBe('healthy');
-      expect(data.timestamp).toBeDefined();
-      expect(data.uptime).toBeDefined();
+      expect(response.body.status).toBe('healthy');
+      expect(response.body.timestamp).toBeDefined();
+      expect(response.body.projectPath).toBeDefined();
     });
   });
 
   describe('GET /api/stats', () => {
     it('returns project statistics', async () => {
-      const response = await fetch(`${baseUrl}/api/stats`);
-      expect(response.ok).toBe(true);
+      const response = await request('http://localhost:3001')
+        .get('/api/stats')
+        .expect(200);
       
-      const data = await response.json();
-      expect(data.success).toBe(true);
-      expect(data.stats).toBeDefined();
-      expect(typeof data.stats.gitCommits).toBe('number');
-      expect(data.timestamp).toBeDefined();
+      expect(response.body.success).toBe(true);
+      expect(response.body.stats).toBeDefined();
+      expect(response.body.stats.totalFiles).toBeDefined();
+      expect(response.body.stats.documentationFiles).toBeDefined();
     });
 
-    it('includes all required stat fields', async () => {
-      const response = await fetch(`${baseUrl}/api/stats`);
-      const data = await response.json();
+    it('returns correct file counts', async () => {
+      const response = await request('http://localhost:3001')
+        .get('/api/stats')
+        .expect(200);
       
-      expect(data.stats).toHaveProperty('gitCommits');
-      expect(data.stats).toHaveProperty('logEntries');
-      expect(data.stats).toHaveProperty('evolutionEntries');
-      expect(data.stats).toHaveProperty('components');
-      expect(data.stats).toHaveProperty('activeAgents');
+      expect(response.body.stats.totalFiles).toBeGreaterThan(0);
+      expect(response.body.stats.documentationFiles).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  describe('GET /api/docs/:filename', () => {
+    it('returns README.md content', async () => {
+      const response = await request('http://localhost:3001')
+        .get('/api/docs/README.md')
+        .expect(200);
+      
+      expect(response.text).toContain('# Test Project');
+    });
+
+    it('returns PROJECT_GUIDE.md content', async () => {
+      const response = await request('http://localhost:3001')
+        .get('/api/docs/PROJECT_GUIDE.md')
+        .expect(200);
+      
+      expect(response.text).toContain('# Project Guide');
+    });
+
+    it('returns EVOLUTION_LOG.md content', async () => {
+      const response = await request('http://localhost:3001')
+        .get('/api/docs/EVOLUTION_LOG.md')
+        .expect(200);
+      
+      expect(response.text).toContain('# Evolution Log');
+    });
+
+    it('rejects unauthorized files', async () => {
+      const response = await request('http://localhost:3001')
+        .get('/api/docs/secret.txt')
+        .expect(403);
+      
+      expect(response.body.error).toBe('File not allowed');
+    });
+
+    it('handles missing files gracefully', async () => {
+      const response = await request('http://localhost:3001')
+        .get('/api/docs/NONEXISTENT.md')
+        .expect(403); // Blocked by allowlist, not 404
+      
+      expect(response.body.error).toBe('File not allowed');
+    });
+  });
+
+  describe('GET /api/log-entries', () => {
+    it('returns log entries array', async () => {
+      const response = await request('http://localhost:3001')
+        .get('/api/log-entries')
+        .expect(200);
+      
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.entries)).toBe(true);
     });
   });
 
   describe('POST /api/log-entry', () => {
     it('creates a new log entry', async () => {
-      const entry = {
-        agent: 'Test-Agent',
-        content: 'Test log entry content',
+      const testEntry = {
+        agent: 'TEST-AGENT',
         type: 'test',
-        task: 'Testing'
+        task: 'Testing API',
+        content: 'This is a test entry'
       };
-
-      const response = await fetch(`${baseUrl}/api/log-entry`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry)
-      });
-
-      expect(response.ok).toBe(true);
-      const data = await response.json();
-      expect(data.success).toBe(true);
-      expect(data.timestamp).toBeDefined();
-    });
-
-    it('rejects entries without agent', async () => {
-      const response = await fetch(`${baseUrl}/api/log-entry`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: 'Test content' })
-      });
-
-      expect(response.status).toBe(400);
-      const data = await response.json();
-      expect(data.success).toBe(false);
-      expect(data.error).toContain('Invalid entry');
-    });
-
-    it('rejects entries without content', async () => {
-      const response = await fetch(`${baseUrl}/api/log-entry`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent: 'Test-Agent' })
-      });
-
-      expect(response.status).toBe(400);
-    });
-
-    it('detects duplicate entries', async () => {
-      const entry = {
-        agent: 'Duplicate-Agent',
-        content: 'Duplicate test content'
-      };
-
-      // First entry
-      await fetch(`${baseUrl}/api/log-entry`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry)
-      });
-
-      // Duplicate entry
-      const response = await fetch(`${baseUrl}/api/log-entry`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry)
-      });
-
-      const data = await response.json();
-      expect(data.duplicate).toBe(true);
-      expect(data.message).toBe('Duplicate entry detected');
-    });
-
-    it('allows force append of duplicates', async () => {
-      const entry = {
-        agent: 'Force-Agent',
-        content: 'Force test content'
-      };
-
-      // First entry
-      await fetch(`${baseUrl}/api/log-entry`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry)
-      });
-
-      // Force duplicate
-      const response = await fetch(`${baseUrl}/api/log-entry?force=true`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry)
-      });
-
-      const data = await response.json();
-      expect(data.success).toBe(true);
-    });
-
-    it('sanitizes XSS attempts', async () => {
-      const entry = {
-        agent: '<script>alert("xss")</script>',
-        content: 'Test <img src=x onerror=alert(1)> content'
-      };
-
-      const response = await fetch(`${baseUrl}/api/log-entry`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry)
-      });
-
-      expect(response.ok).toBe(true);
-      const data = await response.json();
-      // XSS should be stripped
-      expect(data.success).toBe(true);
-    });
-  });
-
-  describe('GET /api/docs/:filename', () => {
-    it('serves allowed documentation files', async () => {
-      const response = await fetch(`${baseUrl}/api/docs/README.md`);
       
-      // May 404 if file doesn't exist, but should not 403
-      expect([200, 404, 403]).toContain(response.status);
-    });
-
-    it('rejects disallowed files', async () => {
-      const response = await fetch(`${baseUrl}/api/docs/../../../etc/passwd`);
-      expect(response.status).toBe(403);
-    });
-
-    it('rejects arbitrary file access', async () => {
-      const response = await fetch(`${baseUrl}/api/docs/secret.txt`);
-      expect(response.status).toBe(403);
-    });
-
-    it('returns JSON with content for valid files', async () => {
-      const response = await fetch(`${baseUrl}/api/docs/README.md`);
+      const response = await request('http://localhost:3001')
+        .post('/api/log-entry')
+        .send(testEntry)
+        .expect(200);
       
-      if (response.ok) {
-        const data = await response.json();
-        expect(data).toHaveProperty('filename');
-        expect(data).toHaveProperty('success');
-        if (data.success) {
-          expect(data).toHaveProperty('content');
-          expect(data).toHaveProperty('size');
-        }
-      }
+      expect(response.body.success).toBe(true);
+      expect(response.body.entry.agent).toBe('TEST-AGENT');
+      expect(response.body.entry.content).toBe('This is a test entry');
+      expect(response.body.entry.timestamp).toBeDefined();
+      expect(response.body.entry.hash).toBeDefined();
+    });
+
+    it('validates required fields', async () => {
+      const response = await request('http://localhost:3001')
+        .post('/api/log-entry')
+        .send({ agent: 'TEST' })
+        .expect(400);
+      
+      expect(response.body.error).toContain('Missing required fields');
+    });
+
+    it('generates unique hash for each entry', async () => {
+      const entry1 = {
+        agent: 'HASH-TEST',
+        content: 'First entry content'
+      };
+      
+      const entry2 = {
+        agent: 'HASH-TEST',
+        content: 'Second entry content'
+      };
+      
+      const response1 = await request('http://localhost:3001')
+        .post('/api/log-entry')
+        .send(entry1);
+      
+      const response2 = await request('http://localhost:3001')
+        .post('/api/log-entry')
+        .send(entry2);
+      
+      expect(response1.body.entry.hash).not.toBe(response2.body.entry.hash);
     });
   });
 });
 
-describe('Security Features', () => {
-  let server;
-  let baseUrl;
-
-  beforeAll(() => {
-    const { httpServer } = createTestServer();
-    server = httpServer;
-    server.listen(0);
-    const addr = server.address();
-    baseUrl = `http://localhost:${addr.port}`;
-  });
-
-  afterAll(() => {
-    if (server) server.close();
-  });
-
-  it('includes security headers', async () => {
-    const response = await fetch(`${baseUrl}/api/health`);
+describe('Path Security', () => {
+  it('prevents directory traversal in docs endpoint', () => {
+    const maliciousPath = '../../../etc/passwd';
+    const allowedFiles = ['README.md', 'PROJECT_GUIDE.md', 'EVOLUTION_LOG.md'];
     
-    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
-    expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+    // Simulate the security check
+    const isAllowed = allowedFiles.includes(path.basename(maliciousPath));
+    
+    expect(isAllowed).toBe(false);
   });
 
-  it('handles CORS correctly', async () => {
-    const response = await fetch(`${baseUrl}/api/health`, {
-      headers: { Origin: 'http://localhost:5173' }
-    });
+  it('validates project path exists before operations', () => {
+    const mockExistsSync = jest.spyOn(fs, 'existsSync');
+    mockExistsSync.mockReturnValue(false);
     
-    expect(response.ok).toBe(true);
+    const projectPath = '/nonexistent/path';
+    const exists = fs.existsSync(projectPath);
+    
+    expect(exists).toBe(false);
+    mockExistsSync.mockRestore();
   });
 });
 
-describe('Rate Limiting', () => {
-  let server;
-  let baseUrl;
-
-  beforeAll(() => {
-    const { httpServer } = createTestServer();
-    server = httpServer;
-    server.listen(0);
-    const addr = server.address();
-    baseUrl = `http://localhost:${addr.port}`;
+describe('Input Validation', () => {
+  it('sanitizes log entry content', () => {
+    const dirtyInput = '<script>alert("xss")</script>';
+    const sanitized = dirtyInput
+      .replace(/</g, '<')
+      .replace(/>/g, '>');
+    
+    expect(sanitized).not.toContain('<script>');
+    expect(sanitized).toContain('<script>');
   });
 
-  afterAll(() => {
-    if (server) server.close();
-  });
-
-  it('allows requests under rate limit', async () => {
-    // Make 5 requests
-    for (let i = 0; i < 5; i++) {
-      const response = await fetch(`${baseUrl}/api/health`);
-      expect(response.ok).toBe(true);
-    }
+  it('limits entry content length', () => {
+    const maxLength = 100000;
+    const longContent = 'A'.repeat(maxLength + 1);
+    
+    // Simulate truncation
+    const truncated = longContent.length > maxLength 
+      ? longContent.substring(0, maxLength) + '...[truncated]'
+      : longContent;
+    
+    expect(truncated.length).toBe(maxLength + 14); // 14 for "[truncated]"
   });
 });

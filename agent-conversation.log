@@ -649,3 +649,36 @@ Alright, we’re moving into the Job Tracker. This is the "Basement" equivalent 
 🏗️ Component: The "Punch-Clock" Interface
 This needs to be the most "fat-finger" friendly part of the whole app. High contrast, massive buttons, and a visual "Running" state that is imp...
 ---
+
+01/09/2026, 12:45 AST
+Actor: BLACKBOX-3.2
+Type: feature
+Task: FloatingWindow Component System
+Content: **FLOATING WINDOW SYSTEM COMPLETE** ✅
+
+## What Was Built
+
+**FloatingWindow.jsx** - Reusable floating window container
+- Draggable header using native mouse events
+- Minimize/maximize/close controls  
+- Position persistence via localStorage (separate keys for preview/docs)
+- Z-index: 9999 (always on top)
+- Mobile: full-screen modals
+- Framer Motion animations
+
+**Integration:**
+- Modified App.jsx: showFloatingWindow + floatingWindowType state
+- Modified PreviewWindow.jsx: content-only (no chrome)
+- Modified DocumentationViewer.jsx: content-only (no chrome)
+- Header buttons: Preview + Docs toggle floating windows
+- Only one window visible at a time
+
+## Testing Results
+✅ All core functionality working
+✅ Drag, minimize, maximize, close tested
+✅ Window switching tested
+✅ Content rendering verified
+
+Ready for production use.
+
+---

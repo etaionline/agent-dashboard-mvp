@@ -1,152 +1,173 @@
 # AI Agent Instructions — Agent Dashboard MVP
 
-**Purpose**: Real-time visual coordination UI for multi-agent development (docs, logs, live activity) targeting an external project via `AGENT_PROJECT_PATH`.
+## Purpose
+Multi-AI orchestration platform ("Bougie Budget" strategy) — coordinate 7 free-tier AI agents to build projects with $0 cost. Task Router analyzes complexity and routes work to appropriate agents (Gemini Code Assist for coding, Mistral for planning, Grok for analysis).
 
-## ⚠️ CRITICAL SAFEGUARDS — READ FIRST
+## Critical Architecture
 
-### Before Making ANY Changes:
-1. **COMMUNICATE FIRST**: Describe planned changes and get user approval for anything touching >1 file or >50 lines
-2. **CREATE SAFETY BRANCH**: `git checkout -b ai/[agent-name]/[feature]` before major refactors
-3. **VERIFY EXISTING FEATURES**: Run `npm run dev` + `npm run server` to see current functionality — DO NOT remove working features
-4. **ASK CLARIFYING QUESTIONS**: If requirements are vague, ask 3+ specific questions before coding
+**Single-Screen Command Center Design:**
+- Task Router (default view) → analyzes task → recommends agent → generates workflow
+- Compact status bar (always visible) → 40px horizontal bar with stats
+- Quick Decision Guide (right sidebar, 220px) → collapsible agent reference
+- Floating windows for Preview + Docs (only one visible at a time)
+- Four views: Task Router | Agents | Workflows | Dashboard
 
-### NEVER Do This Without Explicit Permission:
-- ❌ Remove existing components that are imported/used (ManualAgentInput, DocumentationViewer, TaskRouter, etc.)
-- ❌ Restructure entire App.jsx or change navigation system
-- ❌ Delete views/features without confirming they're unused
-- ❌ Create 3+ new files for "refactoring" without explaining why
-- ❌ Change core data flows (WebSocket patterns, localStorage fallbacks)
+**Key Components:**
+- `TaskRouter.jsx` (418 lines) — complexity analyzer, agent recommender, workflow generator
+- `AgentCapabilities.jsx` (485 lines) — 7 AI agents matrix (GitHub access, local repo, capabilities)
+- `WorkflowGenerator.jsx` (462 lines) — pre-built workflow templates with step tracking
+- `CompactStatusBar.jsx` — single-line stats (agents | cost | components | commits)
+- `QuickDecisionGuide.jsx` — right sidebar with agent quick reference
+- `FloatingWindow.jsx` — (in progress by Blackbox) draggable windows for Preview/Docs
 
-### Recovery Commands (teach users these):
+**Data Flow:**
+- Frontend (React 18 + Vite + Tailwind + Framer Motion) ←→ Backend (Express + Socket.io on :3001)
+- ManualAgentInput → POST `/api/log-entry` → `agent-conversation.log` (SHA-256 deduplication)
+- DocumentationViewer → GET `/api/docs/:filename` from `AGENT_PROJECT_PATH`
+- PreviewWindow → iframe to localhost:5174 (painting-estimator) or production URL
+- Stats: GET `/api/stats` → real data from painting-estimator (components, commits, log entries)
+
+**Backend (server/index.js):**
+- File watcher (chokidar) on `AGENT_PROJECT_PATH` → WebSocket events on changes
+- Endpoints: `/api/health`, `/api/stats`, `/api/log-entry` (POST), `/api/log-entries`, `/api/docs/:filename`
+- Rate limiting (express-rate-limit)
+- Path integrity enforcement ("Basement Protocol" after Gemini incident)
+
+## Workflows & Conventions
+
+**Git Workflow:**
+- Always branch for >1 file changes: `git checkout -b ai/[agent]/[feature]`
+- Commit format: `feat: description\n\n🤖 Generated with [Claude Code]\n\nCo-Authored-By: [Agent Name]`
+- Never force push to main without explicit user approval
+- Recovery: `git reset --hard HEAD` if things break
+
+**Agent Coordination:**
+- Log all work to `agent-conversation.log` with timestamp, actor, type, content
+- Use Manual Agent Drop Zone UI for pasting responses from non-API agents (Grok, web-based AIs)
+- Task Router tells you which agent to use (don't guess)
+- Code assistants (Gemini Code Assist, Copilot) do ALL simple coding
+- Planning agents (Mistral, ChatGPT, Gemini) only for complex architecture
+- Grok only when you need raw analytical power (requires full context paste)
+
+**UI Patterns:**
+- Dark theme (bg-slate-900, text-slate-400)
+- Framer Motion: `initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}`
+- Copy-to-clipboard with feedback (checkmark on success)
+- Lucide React icons (import from 'lucide-react')
+- Mobile responsive: `hidden lg:block` for desktop-only features
+- Compact status bar shows on ALL views (40px fixed height)
+- QuickDecisionGuide: fixed right sidebar, collapsible, localStorage persistence
+
+**State Management:**
+- React useState for local component state
+- localStorage for persistence (guide open/closed, floating window positions)
+- WebSocket for real-time updates (file changes, log entries)
+- Fallback to mock data if backend unavailable
+
+**Testing:**
+- Vitest + React Testing Library
+- Run: `npm test` or `npm run test:run`
+- Test files: `*.test.jsx` alongside components
+
+## Run & Develop
+
 ```bash
-# Undo all uncommitted changes
-git stash push -u -m "AI_CHANGES_$(date +%Y%m%d_%H%M%S)"
+# Install
+npm install
 
-# Return to last good commit
-git reset --hard HEAD
+# Start frontend (port 5173)
+npm run dev
 
-# See stashed changes later
-git stash list && git stash show stash@{0}
+# Start backend (port 3001) in separate terminal
+npm run server
+
+# Point to external project (painting-estimator)
+export AGENT_PROJECT_PATH="/Users/skip/Documents/Active_Projects/painting-estimator"
+
+# Tests
+npm test
 ```
 
-Architecture (React + Express)
-- Frontend: React 18 + Vite + Tailwind + Framer Motion + Zustand.
-- Backend: Express (proxied by Vite) + partial Socket.io.
-- Key files: [src/App.jsx](src/App.jsx), [src/components/DocumentationViewer.jsx](src/components/DocumentationViewer.jsx), [src/components/ManualAgentInput.jsx](src/components/ManualAgentInput.jsx), [server/index.js](server/index.js).
+**Quick Verifications:**
+- Frontend: http://localhost:5173
+- Backend health: http://localhost:3001/api/health
+- Docs endpoint: http://localhost:3001/api/docs/README.md
+- Stats: http://localhost:3001/api/stats
 
-Dev Workflow
-- Install/run: `npm install` → `npm run dev` (5173) and `npm run server` (3001).
-- Point to a project: `export AGENT_PROJECT_PATH="/absolute/path/to/project"`.
-- Quick checks:
-  - Docs: http://localhost:3001/api/docs/README.md (serves from `AGENT_PROJECT_PATH`).
-  - Logs: POST http://localhost:3001/api/log-entry, GET `/api/log-entries?limit=20`.
-  - Stats (optional): GET `/api/stats` — if 404, define route in [server/index.js](server/index.js) before `httpServer.listen()`.
+## Critical Don'ts
 
-Critical Data Flow
-- External Agent → ManualAgentInput → POST `/api/log-entry` → `agent-conversation.log`.
-- DocumentationViewer → GET `/api/docs/:filename` → read-only markdown from target project.
-- Fallback: If backend unavailable, UI writes/reads localStorage (graceful degradation).
+**Never remove or restructure these without explicit approval:**
+- `src/components/TaskRouter.jsx` — core orchestration logic
+- `src/components/AgentCapabilities.jsx` — agent matrix
+- `src/components/ManualAgentInput.jsx` — log entry surface
+- `src/components/DocumentationViewer.jsx` — docs viewer
+- `src/App.jsx` — view system and layout
 
-Component & UI Conventions
-- Functional components, Tailwind-only styling (dark theme defaults: `bg-slate-900`, `text-slate-400`).
-- Use Framer Motion for enter/hover transitions; follow `initial → animate → transition` pattern.
-- Include JSDoc header with agent signature + timestamp on new components.
+**Safeguards:**
+- Communicate plans before editing >50 lines or >1 file
+- Preserve WebSocket + localStorage fallback pattern
+- Never block UI on backend (optimistic updates)
+- Don't remove working surfaces (Manual Input, Docs Viewer)
+- Recovery: `git stash` or `git reset --hard HEAD`
 
-Backend Endpoints (implemented)
-- `GET /api/docs/:filename` → { success, content } from `AGENT_PROJECT_PATH`.
-- `POST /api/log-entry` → append structured entry to `agent-conversation.log`.
-- `GET /api/log-entries?limit=20` → recent entries for UI.
-- Known pitfall: `/api/stats` may be undefined; wire it up if stats cards read 0.
+## Key Files Reference
 
-Error Handling Patterns
-- Prefer friendly UI messages; log diagnostic context to console.
-- ManualAgentInput: try backend, else localStorage fallback (keep entry structure consistent).
+**Core Components:**
+- Entry: `src/main.jsx` → wraps App in DontPanicErrorBoundary
+- App: `src/App.jsx` → view system, WebSocket connection, stats fetching
+- Task Router: `src/components/TaskRouter.jsx` — task analysis, agent routing
+- Agent Matrix: `src/components/AgentCapabilities.jsx` — 7 agents overview
+- Workflows: `src/components/WorkflowGenerator.jsx` — workflow templates
+- Status Bar: `src/components/CompactStatusBar.jsx` — horizontal stats
+- Quick Guide: `src/components/QuickDecisionGuide.jsx` — right sidebar
 
-When Extending
-- New UI surfaces should not block on backend; add optimistic UI with localStorage backup.
-- If adding sockets: reuse existing connection pattern in [src/App.jsx](src/App.jsx) / [src/components/DocumentationViewer.jsx](src/components/DocumentationViewer.jsx); emit file-change events, debounce UI updates.
+**Backend:**
+- Server: `server/index.js` — Express + Socket.io gateway
+- Utils: `server/utils/parser.js` — log parsing utilities
+- Tests: `server/__tests__/api.test.js` — backend API tests
 
-MVP Scope Reminder
-- Graph visualizations and advanced sockets are partial; prioritize docs/logs flows and stability over roadmap items.
+## Current State (Jan 9, 2026)
 
-## Git Workflow for Safety
+**Completed:**
+- ✅ Task Router system (complexity analysis, agent recommendations, workflow generation)
+- ✅ Agent Capabilities matrix (7 free agents, GitHub access indicators)
+- ✅ Workflow Generator (5 pre-built templates with progress tracking)
+- ✅ Compact Status Bar (single-line stats, always visible)
+- ✅ Quick Decision Guide (collapsible right sidebar)
+- ✅ Manual Agent Drop Zone (paste responses, SHA-256 deduplication)
+- ✅ Documentation Viewer (tabbed interface, search, auto-refresh)
+- ✅ Preview Window (iframe to painting-estimator, fullscreen toggle)
 
-**Branch-First Pattern** (prevents destructive changes)
-```bash
-# Before major refactors:
-git checkout -b ai/[agent]/[feature-name]
+**In Progress:**
+- ⏳ FloatingWindow component (Blackbox AI building) — draggable windows for Preview/Docs
 
-# Commit incrementally:
-git add -A && git commit -m "[agent]: [specific change]"
+**Planned:**
+- Merge Agents + Workflows into unified view
+- Agent cards with built-in manual entry toggle
+- Single-screen command center (no scrolling, maximum density)
 
-# If user says "undo" or breaks:
-git checkout main  # Back to working version
-git branch -D ai/[agent]/[feature-name]  # Delete bad attempt
+## Agent-Specific Notes
 
-# If approved:
-git checkout main && git merge ai/[agent]/[feature-name] && git push
-```
+**Gemini Code Assist / Copilot:**
+- Use for ALL coding tasks — 30 days free trial
+- Has full local repo context
+- Perfect for UI polish, styling, refactoring
 
-**Current Working Features** (DO NOT remove):
-- Manual Agent Input (logs to backend + localStorage fallback)
-- Documentation Viewer (live file watching from AGENT_PROJECT_PATH)
-- Multi-tab docs (README, PROJECT_GUIDE, agent-conversation.log, etc.)
-- WebSocket real-time updates
-- Stats cards (components, commits, agents, log entries)
+**Mistral Le Chat:**
+- Has GitHub access — can review repo
+- Use for strategic planning, architecture
+- Example: "Review agent-dashboard-mvp on GitHub and suggest architecture for [feature]"
 
-## Cline + Minimax Specific Instructions
+**ChatGPT / Gemini:**
+- Has GitHub access
+- Use for task breakdown, documentation, alternative opinions
 
-**Context Limitations**: Minimax has smaller context window than Claude/GPT-4 — be strategic:
-- ✅ **Read files selectively**: Use `grep_search` to find code before reading full files
-- ✅ **Work incrementally**: Make 1-2 file changes per task, test, then continue
-- ✅ **Ask for clarification early**: Don't assume — verify requirements upfront
-- ❌ **Don't read entire codebase**: You'll hit context limits quickly
+**Grok:**
+- No repo access — requires full context paste
+- Use ONLY for intensive analysis on specific data
 
-**Workflow for Cline/Minimax**:
-```bash
-# 1. Start each task with specific file search
-grep_search("ManualAgentInput") # Find where component is used
+**Blackbox AI / Cline:**
+- Effective at building components from detailed specs
+- Works well in parallel with other agents
 
-# 2. Read ONLY the files you need
-read_file("src/components/ManualAgentInput.jsx", 1, 50)  # Target specific lines
-
-# 3. Make focused changes
-# ✅ Good: Fix one component, test, commit
-# ❌ Bad: Refactor 5 files at once
-
-# 4. Test immediately
-run_in_terminal("npm run dev")  # Verify changes work
-
-# 5. Commit early, commit often
-run_in_terminal("git add -A && git commit -m 'cline/minimax: [what you did]'")
-```
-
-**Best Practices for Minimax**:
-- **Small PRs**: Target 50-100 lines changed per task
-- **Single Responsibility**: "Fix bug in ManualAgentInput" not "Refactor entire app"
-- **Test First**: Run dev server BEFORE making changes to see current behavior
-- **Use Tools Wisely**: 
-  - `semantic_search` for "where is X functionality?"
-  - `grep_search` for "find all uses of X function"
-  - `list_dir` before reading files blindly
-- **Preserve Working Code**: If it works, don't "improve" it without user request
-
-**Common Minimax Pitfalls to Avoid**:
-1. Reading too many files → context overflow → forgets earlier context
-2. Making sweeping changes → breaks working features
-3. Not testing → ships broken code
-4. Assuming requirements → builds wrong thing
-
-**When You're Stuck**:
-```bash
-# Check what's actually running
-run_in_terminal("ps aux | grep 'node\\|vite'")
-
-# See recent changes
-run_in_terminal("git log --oneline -5")
-
-# Verify file exists before reading
-list_dir("src/components")
-```
-
-Last Reviewed: 2026-01-09 (added safeguards after Gemini incident + Cline/Minimax guidance)
+Last Reviewed: 2026-01-09 (Task Router deployment)

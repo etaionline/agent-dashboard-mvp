@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react';
-import { ExternalLink, RefreshCw, Maximize2, Minimize2, Monitor } from 'lucide-react';
+import { useState } from 'react';
+import { ExternalLink, RefreshCw, Monitor } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 /**
- * Live Preview Window
+ * Live Preview Window Content
  *
  * Shows live preview of painting-estimator (or other projects) running.
- * Completes the "Mission Control" vision: see and direct from one place.
+ * Now designed to work inside FloatingWindow wrapper.
  *
  * Agent: CLAUDE-4.5
  * Created: 2026-01-09
+ * Updated: 2026-01-09 (Refactored for FloatingWindow)
  */
 
 const PREVIEW_PROJECTS = [
@@ -29,7 +30,6 @@ const PREVIEW_PROJECTS = [
 
 export const PreviewWindow = () => {
   const [activeProject, setActiveProject] = useState(PREVIEW_PROJECTS[0]);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
@@ -58,15 +58,13 @@ export const PreviewWindow = () => {
   };
 
   return (
-    <div className={`bg-slate-900/70 backdrop-blur-lg rounded-xl border border-slate-700 flex flex-col ${
-      isFullscreen ? 'fixed inset-4 z-50' : 'h-[70vh]'
-    }`}>
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-slate-700">
+    <div className="flex flex-col h-full">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-slate-900/30">
         <div className="flex items-center gap-3">
-          <Monitor className="w-6 h-6 text-cyan-400" />
+          <Monitor className="w-5 h-5 text-cyan-400" />
           <div>
-            <h2 className="text-xl font-semibold text-white">Live Preview</h2>
+            <p className="text-sm font-medium text-white">{activeProject.name}</p>
             <p className="text-xs text-slate-400">{activeProject.description}</p>
           </div>
         </div>
@@ -107,18 +105,6 @@ export const PreviewWindow = () => {
             title="Open in new tab"
           >
             <ExternalLink className="w-5 h-5" />
-          </button>
-
-          <button
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800"
-            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          >
-            {isFullscreen ? (
-              <Minimize2 className="w-5 h-5" />
-            ) : (
-              <Maximize2 className="w-5 h-5" />
-            )}
           </button>
         </div>
       </div>
@@ -172,7 +158,7 @@ export const PreviewWindow = () => {
           <iframe
             id="preview-iframe"
             src={activeProject.url}
-            className="w-full h-full border-0 rounded-b-xl"
+            className="w-full h-full border-0"
             title={`Preview: ${activeProject.name}`}
             onLoad={handleIframeLoad}
             onError={handleIframeError}
@@ -182,7 +168,7 @@ export const PreviewWindow = () => {
       </div>
 
       {/* Footer Info */}
-      <div className="px-4 py-2 border-t border-slate-700 bg-slate-950/30 rounded-b-xl">
+      <div className="px-4 py-2 border-t border-slate-700 bg-slate-950/30">
         <div className="flex items-center justify-between text-xs">
           <span className="text-slate-500">
             Previewing: <span className="text-slate-400 font-mono">{activeProject.url}</span>
